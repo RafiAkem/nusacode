@@ -17,6 +17,8 @@ const MODELS_URL = "https://api.nusagate.com/api/public/models";
 const TOPUP_URL = "https://nusagate.com/dashboard/wallet";
 const PROVIDER = "nusagate";
 const STATUS_KEY = "nusa-meter";
+/** Shared extension event bus channel; subagents.ts publishes child usage here. */
+const USAGE_CHANNEL = "nusacode:usage";
 const FETCH_TIMEOUT_MS = 5_000;
 // Display-only: mirrors NusaGate's USD_IDR_RATE to render "vs official price".
 const USD_IDR = 18_000;
@@ -32,6 +34,9 @@ type Price = {
   officialOutputPer1M: number | null;
 };
 
+/** Token counts for one response, in the shape pi reports them. */
+type UsageCounts = { input: number; cacheRead: number; cacheWrite: number; output: number };
+
 type Totals = {
   requests: number;
   /** Prompt tokens billed at the full input price (pi `input` + `cacheWrite`). */
@@ -43,6 +48,9 @@ type Totals = {
   officialIdr: number;
   /** Responses whose model had no price row; their cost is not in `costIdr`. */
   unpriced: number;
+  /** Subagent child processes report through the extension event bus, not `message_end`. */
+  subagentRequests: number;
+  subagentTokens: number;
 };
 
 const ZERO_TOTALS: Totals = {
@@ -53,6 +61,8 @@ const ZERO_TOTALS: Totals = {
   costIdr: 0,
   officialIdr: 0,
   unpriced: 0,
+  subagentRequests: 0,
+  subagentTokens: 0,
 };
 
 /** JSON objects from the catalog endpoint are string-keyed by construction. */
@@ -149,6 +159,8 @@ export default function meter(pi: ExtensionAPI) {
   let totals: Totals = { ...ZERO_TOTALS };
   let modelsUsed = new Set<string>();
   let keyId: string | null = null;
+  /** Last context seen, so a bus event from a subagent can refresh the statusline. */
+  let lastCtx: ExtensionContext | null = null;
   // TODO(M6): NusaGate has no API-key-authenticated balance endpoint
   // (`/api/balance` needs a user session cookie; `/v1/usage` returns token
   // totals, not balance). Once one exists: show the balance, estimate remaining
@@ -180,6 +192,9 @@ export default function meter(pi: ExtensionAPI) {
       `Request ${totals.requests} · token ${tokens(used)} (input ${tokens(totals.freshInput)} · cache ${tokens(totals.cacheRead)} · output ${tokens(totals.output)})`,
       `Cache hit ${percent(totals.cacheRead, prompt)}`,
     ];
+    if (totals.subagentRequests > 0) {
+      lines.push(`Subagent ${totals.subagentRequests} request · ${tokens(totals.subagentTokens)} tok (termasuk di atas)`);
+    }
     if (prices) {
       lines.push(`Biaya sesi ${idr(totals.costIdr)}`);
       if (totals.officialIdr > 0) {
@@ -205,6 +220,7 @@ export default function meter(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     totals = { ...ZERO_TOTALS };
     modelsUsed = new Set();
+    lastCtx = ctx;
     prices = null;
     priceError = null;
     priceSource = process.env.NUSAGATE_MODELS_URL || MODELS_URL;
@@ -219,36 +235,58 @@ export default function meter(pi: ExtensionAPI) {
     refreshStatus(ctx);
   });
 
-  // Token usage per provider response. `after_provider_response` carries only
-  // status and headers in pi 1.4.0, so the normalized usage on the assistant
-  // message is the earliest point where it is available.
-  pi.on("message_end", (event, ctx) => {
-    const message = event.message;
-    if (message.role !== "assistant") return;
-    const usage = message.usage;
-    if (!usage) return;
+  /** Folds one provider response into the session totals. */
+  function account(provider: string, model: string, usage: UsageCounts): void {
     const fresh = usage.input + usage.cacheWrite;
     const cached = usage.cacheRead;
     totals.requests += 1;
     totals.freshInput += fresh;
     totals.cacheRead += cached;
     totals.output += usage.output;
-    modelsUsed.add(`${message.provider}/${message.model}`);
-    const price = message.provider === PROVIDER ? prices?.get(message.model) : undefined;
+    modelsUsed.add(`${provider}/${model}`);
+    const price = provider === PROVIDER ? prices?.get(model) : undefined;
     if (!price) {
       totals.unpriced += 1;
-    } else {
-      totals.costIdr += billIdr(price, fresh, cached, usage.output);
-      if (price.officialInputPer1M !== null && price.officialOutputPer1M !== null) {
-        totals.officialIdr +=
-          ((fresh + cached) / 1_000_000) * price.officialInputPer1M +
-          (usage.output / 1_000_000) * price.officialOutputPer1M;
-      }
+      return;
     }
+    totals.costIdr += billIdr(price, fresh, cached, usage.output);
+    if (price.officialInputPer1M !== null && price.officialOutputPer1M !== null) {
+      totals.officialIdr +=
+        ((fresh + cached) / 1_000_000) * price.officialInputPer1M + (usage.output / 1_000_000) * price.officialOutputPer1M;
+    }
+  }
+
+  // Token usage per provider response. `after_provider_response` carries only
+  // status and headers in pi 1.4.0, so the normalized usage on the assistant
+  // message is the earliest point where it is available.
+  pi.on("message_end", (event, ctx) => {
+    lastCtx = ctx;
+    const message = event.message;
+    if (message.role !== "assistant" || !message.usage) return;
+    account(message.provider, message.model, message.usage);
     refreshStatus(ctx);
   });
 
+  // Subagent children are separate processes, so their usage never reaches
+  // `message_end` here; subagents.ts republishes it on the shared event bus.
+  pi.events.on(USAGE_CHANNEL, (data) => {
+    const event = asRecord(data);
+    const usage = event ? asRecord(event.usage) : null;
+    if (!event || event.source !== "subagent" || !usage) return;
+    const counts: UsageCounts = {
+      input: readNumber(usage, "input") ?? 0,
+      cacheRead: readNumber(usage, "cacheRead") ?? 0,
+      cacheWrite: readNumber(usage, "cacheWrite") ?? 0,
+      output: readNumber(usage, "output") ?? 0,
+    };
+    account(String(event.provider), String(event.model), counts);
+    totals.subagentRequests += 1;
+    totals.subagentTokens += counts.input + counts.cacheRead + counts.cacheWrite + counts.output;
+    if (lastCtx) refreshStatus(lastCtx);
+  });
+
   pi.on("turn_end", (_event, ctx) => {
+    lastCtx = ctx;
     refreshStatus(ctx);
   });
 

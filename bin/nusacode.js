@@ -14,12 +14,23 @@ const sessionDir = path.join(home, "sessions");
 
 // Seed defaults once; never overwrite a file the user already has.
 fs.mkdirSync(sessionDir, { recursive: true });
-for (const name of ["settings.json", "models.json"]) {
-  const src = path.join(root, "config", name === "settings.json" ? "settings.default.json" : name);
+function seed(source, target) {
   try {
-    fs.copyFileSync(src, path.join(home, name), fs.constants.COPYFILE_EXCL);
+    fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL);
   } catch (err) {
     if (err.code !== "EEXIST") throw err;
+  }
+}
+seed(path.join(root, "config", "settings.default.json"), path.join(home, "settings.json"));
+seed(path.join(root, "config", "models.json"), path.join(home, "models.json"));
+
+// Agent definitions for the `task` tool, seeded the same way.
+const agentsDir = path.join(home, "agents");
+fs.mkdirSync(agentsDir, { recursive: true });
+const agentsSrc = path.join(root, "config", "agents");
+if (fs.existsSync(agentsSrc)) {
+  for (const name of fs.readdirSync(agentsSrc)) {
+    seed(path.join(agentsSrc, name), path.join(agentsDir, name));
   }
 }
 
