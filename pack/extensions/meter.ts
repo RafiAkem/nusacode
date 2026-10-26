@@ -14,7 +14,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const MODELS_URL = "https://api.nusagate.com/api/public/models";
-const TOPUP_URL = "https://nusagate.com/topup";
+const TOPUP_URL = "https://nusagate.com/dashboard/wallet";
 const PROVIDER = "nusagate";
 const STATUS_KEY = "nusa-meter";
 const FETCH_TIMEOUT_MS = 5_000;
