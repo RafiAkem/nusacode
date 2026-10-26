@@ -1,0 +1,21 @@
+{
+  "name": "@nusacode/pack",
+  "version": "0.1.0",
+  "description": "NusaCode pi-package: rupiah cost meter, token saver, subagents, skills.",
+  "license": "MIT",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "files": [
+    "extensions"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}

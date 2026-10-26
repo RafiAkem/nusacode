@@ -16,10 +16,14 @@
   "engines": {
     "node": ">=20"
   },
+  "workspaces": [
+    "pack"
+  ],
   "scripts": {
     "start": "node bin/nusacode.js"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "~1.4.0"
+    "@earendil-works/pi-coding-agent": "~1.4.0",
+    "@nusacode/pack": "^0.1.0"
   }
 }

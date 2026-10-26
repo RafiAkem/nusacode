@@ -23,21 +23,34 @@ for (const name of ["settings.json", "models.json"]) {
   }
 }
 
-// Locate pi's CLI by walking up from this package (handles nested and hoisted installs).
-function piCli() {
+// Locate a package directory by walking up from this package (handles nested and hoisted installs).
+function findPackage(...segments) {
   for (let dir = root; ; dir = path.dirname(dir)) {
-    const pkg = path.join(dir, "node_modules", "@earendil-works", "pi-coding-agent", "package.json");
-    if (fs.existsSync(pkg)) return path.join(path.dirname(pkg), require(pkg).bin.pi);
-    if (path.dirname(dir) === dir) {
-      throw new Error("@earendil-works/pi-coding-agent is not installed; run npm install");
-    }
+    const pkg = path.join(dir, "node_modules", ...segments, "package.json");
+    if (fs.existsSync(pkg)) return path.dirname(pkg);
+    if (path.dirname(dir) === dir) return null;
   }
 }
 
+function piCli() {
+  const dir = findPackage("@earendil-works", "pi-coding-agent");
+  if (!dir) throw new Error("@earendil-works/pi-coding-agent is not installed; run npm install");
+  return path.join(dir, require(path.join(dir, "package.json")).bin.pi);
+}
+
+// Load the NusaCode pi-package. Falls back to the repo checkout before `npm install`.
+function packDir() {
+  const installed = findPackage("@nusacode", "pack");
+  if (installed) return installed;
+  const local = path.join(root, "pack");
+  return fs.existsSync(path.join(local, "package.json")) ? local : null;
+}
+
 // Spawn node directly (no shell): bash.exe on Windows is an unusable WSL relay.
+const pack = packDir();
 const child = spawn(
   process.execPath,
-  [piCli(), "--session-dir", sessionDir, ...process.argv.slice(2)],
+  [piCli(), "--session-dir", sessionDir, ...(pack ? ["-e", pack] : []), ...process.argv.slice(2)],
   { stdio: "inherit", env: { ...process.env, PI_CODING_AGENT_DIR: home } },
 );
 
