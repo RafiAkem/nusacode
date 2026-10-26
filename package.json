@@ -1,0 +1,25 @@
+{
+  "name": "@nusacode/cli",
+  "version": "0.1.0",
+  "description": "Coding agent CLI untuk NusaGate, dibangun di atas pi (MIT).",
+  "license": "MIT",
+  "bin": {
+    "nusacode": "bin/nusacode.js"
+  },
+  "files": [
+    "bin",
+    "config",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node bin/nusacode.js"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "~1.4.0"
+  }
+}

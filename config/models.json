@@ -1,0 +1,16 @@
+{
+  "providers": {
+    "nusagate": {
+      "baseUrl": "https://api.nusagate.com/v1",
+      "api": "openai-completions",
+      "apiKey": "$NUSAGATE_API_KEY",
+      "models": [
+        {
+          "id": "deepseek-v4.1-flash",
+          "contextWindow": 1048576,
+          "maxTokens": 16384
+        }
+      ]
+    }
+  }
+}

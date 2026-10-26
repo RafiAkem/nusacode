@@ -1,0 +1,7 @@
+node_modules/
+.m0/
+*.log
+.DS_Store
+# internal: business numbers, prod DB details, local paths
+PLAN.md
+M*-REPORT.md
