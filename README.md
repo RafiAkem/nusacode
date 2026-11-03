@@ -11,8 +11,14 @@ Butuh Node.js >= 22.19.0 (lihat `engines` di `package.json`).
 ```sh
 npm install
 export NUSAGATE_API_KEY=...        # ambil dari dashboard NusaGate
-npx nusacode
+npm start
 ```
+
+Paket ini belum diterbitkan ke npm, jadi NusaCode dijalankan dari checkout;
+`npx nusacode` hanya bekerja bila dijalankan di dalam direktori repo.
+
+Semua argumen diteruskan ke `pi`, termasuk `--version`, sehingga perintah itu
+melaporkan versi pi (saat ini 1.4.0), bukan versi paket ini (0.1.0).
 
 Dari checkout repo, launcher bisa dijalankan langsung:
 
