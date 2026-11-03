@@ -98,6 +98,21 @@ header `token-saver.ts`: batas 200 baris menghasilkan 100.5k vs 97.9k token pada
 yang sama (+2.7%), biaya tetap Rp 22; batas 50 baris menghemat 15.4% token tetapi
 menyembunyikan output yang seharusnya terlihat.
 
+## Tes
+
+Test dijalankan dengan `npm test`. Semuanya memakai `node:test` dan `node:assert/strict`,
+tanpa framework dan tanpa dependensi tambahan, dan berada di `pack/test/`.
+
+- `meter.test.ts` — aritmetika rupiah meter: pembulatan ke atas per request, harga cache
+  dan fallback-nya, model tanpa harga, serta fetch harga yang gagal.
+- `token-saver.test.ts` — pemotongan output dan pointer `offset`, serta peringatan cache
+  prefix.
+- `subagents.test.ts` — registrasi tool `task`, skema typebox, penjaga rekursi, dan
+  parsing frontmatter.
+
+Ekstensi dijalankan lewat objek `pi` palsu dan `fetch` yang di-stub, jadi test tidak
+butuh jaringan maupun API key.
+
 ## Struktur repo
 
 ```text
