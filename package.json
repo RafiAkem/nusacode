@@ -20,7 +20,8 @@
     "pack"
   ],
   "scripts": {
-    "start": "node bin/nusacode.js"
+    "start": "node bin/nusacode.js",
+    "test": "node --test \"pack/test/*.test.ts\""
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "~1.4.0",
