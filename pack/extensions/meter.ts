@@ -7,19 +7,22 @@
  * per response with the same formula the gateway uses to bill (per-request
  * ceil), so the meter tracks the invoice instead of an estimate.
  *
- * NusaGate returns no cost field in chat responses and has no
- * API-key-authenticated balance endpoint yet, so: cost = tokens x fetched
- * price, and balance is reported as unavailable. No price is hardcoded here.
+ * NusaGate returns no cost field in chat responses, so cost = tokens x fetched
+ * price. Balance comes from `GET /v1/balance`, authenticated with the same API
+ * key. No price is hardcoded here.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const MODELS_URL = "https://api.nusagate.com/api/public/models";
+const BALANCE_URL = "https://api.nusagate.com/v1/balance";
 const TOPUP_URL = "https://nusagate.com/dashboard/wallet";
 const PROVIDER = "nusagate";
 const STATUS_KEY = "nusa-meter";
 /** Shared extension event bus channel; subagents.ts publishes child usage here. */
 const USAGE_CHANNEL = "nusacode:usage";
 const FETCH_TIMEOUT_MS = 5_000;
+/** Below this the report carries the topup link. */
+const LOW_BALANCE_IDR = 5_000;
 // Display-only: mirrors NusaGate's USD_IDR_RATE to render "vs official price".
 const USD_IDR = 18_000;
 
@@ -36,6 +39,13 @@ type Price = {
 
 /** Token counts for one response, in the shape pi reports them. */
 type UsageCounts = { input: number; cacheRead: number; cacheWrite: number; output: number };
+
+/** Wallet state from `/v1/balance`. */
+type Balance = {
+  balanceIdr: number;
+  /** Monthly pass, when the account has one: its own quota on top of the wallet. */
+  pass: { totalIdr: number; remainingIdr: number; endsAt: string } | null;
+};
 
 type Totals = {
   requests: number;
@@ -91,6 +101,19 @@ function tokens(n: number): string {
 
 function percent(part: number, whole: number): string {
   return whole > 0 ? `${((part / whole) * 100).toFixed(1)}%` : "0%";
+}
+
+/** Report rows are aligned on a label column so the panel reads as a table. */
+const LABEL_WIDTH = 12;
+
+function row(label: string, value: string): string {
+  return `${label.padEnd(LABEL_WIDTH)}${value}`;
+}
+
+/** Fraction as a solid/empty bar, e.g. `████████░░░░░░░░`. */
+function bar(part: number, whole: number, width = 16): string {
+  const filled = whole > 0 ? Math.round(Math.min(1, Math.max(0, part / whole)) * width) : 0;
+  return "█".repeat(filled) + "░".repeat(width - filled);
 }
 
 function parsePrice(row: unknown): Price | null {
@@ -149,6 +172,32 @@ function shortKeyId(key: string): string | null {
   return key.startsWith("nsk_") ? key.slice(0, 11) : null;
 }
 
+function parseBalance(body: unknown): Balance {
+  const root = asRecord(body);
+  const balanceIdr = root ? readNumber(root, "balance") : null;
+  if (balanceIdr === null) throw new Error("no balance in response");
+  const pass = root ? asRecord(root.pass) : null;
+  const totalIdr = pass ? readNumber(pass, "valueTotalIdr") : null;
+  const remainingIdr = pass ? readNumber(pass, "valueRemainingIdr") : null;
+  const endsAt = pass?.endsAt;
+  return {
+    balanceIdr,
+    pass:
+      totalIdr !== null && remainingIdr !== null && typeof endsAt === "string"
+        ? { totalIdr, remainingIdr, endsAt }
+        : null,
+  };
+}
+
+async function fetchBalance(url: string, key: string): Promise<Balance> {
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${key}` },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return parseBalance(await res.json());
+}
+
 export default function meter(pi: ExtensionAPI) {
   let prices: Map<string, Price> | null = null;
   let priceError: string | null = null;
@@ -159,13 +208,36 @@ export default function meter(pi: ExtensionAPI) {
   let totals: Totals = { ...ZERO_TOTALS };
   let modelsUsed = new Set<string>();
   let keyId: string | null = null;
+  let apiKey: string | undefined;
+  let balance: Balance | null = null;
+  let balanceError: string | null = null;
   /** Last context seen, so a bus event from a subagent can refresh the statusline. */
   let lastCtx: ExtensionContext | null = null;
-  // TODO(M6): NusaGate has no API-key-authenticated balance endpoint
-  // (`/api/balance` needs a user session cookie; `/v1/usage` returns token
-  // totals, not balance). Once one exists: show the balance, estimate remaining
-  // requests, and print the topup link automatically below Rp5.000.
-  const SALDO_UNAVAILABLE = "Saldo: tidak tersedia (belum ada endpoint saldo berbasis API key di NusaGate)";
+
+  /** Best-effort wallet refresh; failures keep the last known balance. */
+  async function refreshBalance(key: string | undefined): Promise<void> {
+    if (!key) {
+      balanceError = "API key NusaGate tidak ditemukan";
+      return;
+    }
+    try {
+      balance = await fetchBalance(process.env.NUSAGATE_BALANCE_URL || BALANCE_URL, key);
+      balanceError = null;
+    } catch (err) {
+      balanceError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  function balanceRows(): string[] {
+    if (!balance) return [row("Saldo", `tidak tersedia (${balanceError ?? "unknown"})`)];
+    const lines = [row("Saldo", idr(balance.balanceIdr))];
+    if (balance.pass) {
+      const { remainingIdr, totalIdr, endsAt } = balance.pass;
+      lines.push(row("Pass", `${idr(remainingIdr)} sisa dari ${idr(totalIdr)} · s/d ${endsAt.slice(0, 10)}`));
+    }
+    if (balance.balanceIdr < LOW_BALANCE_IDR) lines.push(`Saldo menipis · top up: ${topupLink()}`);
+    return lines;
+  }
 
   function statusText(): string {
     const used = totalTokens(totals);
@@ -184,30 +256,51 @@ export default function meter(pi: ExtensionAPI) {
     ctx.ui.setStatus(STATUS_KEY, statusText());
   }
 
+  function unavailableLine(): string {
+    return `Biaya tidak tersedia (fetch harga gagal: ${priceError ?? "unknown"})`;
+  }
+
   function report(): string {
     const used = totalTokens(totals);
     const prompt = totals.freshInput + totals.cacheRead;
-    const lines = [
-      `NusaCode meter · ${[...modelsUsed].join(", ") || "belum ada model"}`,
-      `Request ${totals.requests} · token ${tokens(used)} (input ${tokens(totals.freshInput)} · cache ${tokens(totals.cacheRead)} · output ${tokens(totals.output)})`,
-      `Cache hit ${percent(totals.cacheRead, prompt)}`,
-    ];
+    const header = `NusaCode · ${[...modelsUsed].join(", ") || "belum ada model"}`;
+    const lines = [header, "─".repeat(Math.max(header.length, 32))];
+    if (totals.requests === 0) {
+      lines.push("Belum ada pemakaian di sesi ini.");
+      lines.push(prices ? `Harga: ${priceSource} (fetch sekali saat session_start)` : unavailableLine());
+      lines.push(...balanceRows());
+      return lines.join("\n");
+    }
+    const requestValue = [`${totals.requests} request`];
     if (totals.subagentRequests > 0) {
-      lines.push(`Subagent ${totals.subagentRequests} request · ${tokens(totals.subagentTokens)} tok (termasuk di atas)`);
+      requestValue.push(`subagent ${totals.subagentRequests} · ${tokens(totals.subagentTokens)} tok`);
+    }
+    lines.push(row("Request", requestValue.join(" · ")));
+    lines.push(
+      row(
+        "Token",
+        `${tokens(used)} · input ${tokens(totals.freshInput)} · cache ${tokens(totals.cacheRead)} · output ${tokens(totals.output)}`,
+      ),
+    );
+    if (used > 0) {
+      lines.push(row("Cache hit", `${bar(totals.cacheRead, prompt)} ${percent(totals.cacheRead, prompt)}`));
     }
     if (prices) {
-      lines.push(`Biaya sesi ${idr(totals.costIdr)}`);
+      lines.push(row("Biaya sesi", idr(totals.costIdr)));
       if (totals.officialIdr > 0) {
         lines.push(
-          `Harga resmi ${idr(totals.officialIdr)} · hemat ${percent(totals.officialIdr - totals.costIdr, totals.officialIdr)}`,
+          row(
+            "Harga resmi",
+            `${idr(totals.officialIdr)} · hemat ${percent(totals.officialIdr - totals.costIdr, totals.officialIdr)}`,
+          ),
         );
       }
       if (totals.unpriced > 0) lines.push(`${totals.unpriced} respons tanpa harga (model tidak ada di katalog)`);
       lines.push(`Harga: ${priceSource} (fetch sekali saat session_start)`);
     } else {
-      lines.push(`Biaya tidak tersedia (fetch harga gagal: ${priceError ?? "unknown"})`);
+      lines.push(unavailableLine());
     }
-    lines.push(SALDO_UNAVAILABLE);
+    lines.push(...balanceRows());
     return lines.join("\n");
   }
 
@@ -223,15 +316,25 @@ export default function meter(pi: ExtensionAPI) {
     lastCtx = ctx;
     prices = null;
     priceError = null;
+    balance = null;
+    balanceError = null;
     priceSource = process.env.NUSAGATE_MODELS_URL || MODELS_URL;
     refreshStatus(ctx);
     const key = await ctx.modelRegistry.getApiKeyForProvider(PROVIDER).catch(() => undefined);
     keyId = key ? shortKeyId(key) : null;
-    try {
-      prices = await fetchPrices(priceSource);
-    } catch (err) {
-      priceError = err instanceof Error ? err.message : String(err);
-    }
+    apiKey = key;
+    // Prices and wallet are independent; one failing must not hide the other.
+    await Promise.all([
+      fetchPrices(priceSource).then(
+        (result) => {
+          prices = result;
+        },
+        (err) => {
+          priceError = err instanceof Error ? err.message : String(err);
+        },
+      ),
+      refreshBalance(key),
+    ]);
     refreshStatus(ctx);
   });
 
@@ -296,17 +399,21 @@ export default function meter(pi: ExtensionAPI) {
     ctx.ui.notify(report(), "info");
   });
 
-  pi.registerCommand("nusa", {
+  pi.registerCommand("usage", {
     description: "Tampilkan meter biaya sesi (rupiah, token, penghematan)",
     handler: async (_args, ctx) => {
+      // Refetch the wallet so the report reflects charges made since startup.
+      await refreshBalance(apiKey);
       ctx.ui.notify(report(), "info");
     },
   });
 
   pi.registerCommand("topup", {
-    description: "Tampilkan link top up saldo NusaGate",
+    description: "Tampilkan saldo dan link top up NusaGate",
     handler: async (_args, ctx) => {
-      ctx.ui.notify(`${SALDO_UNAVAILABLE} — cek di dashboard.\nTop up: ${topupLink()}`, "info");
+      await refreshBalance(apiKey);
+      const saldo = balance ? `Saldo: ${idr(balance.balanceIdr)}` : `Saldo tidak tersedia (${balanceError ?? "unknown"})`;
+      ctx.ui.notify(`${saldo}\nTop up: ${topupLink()}`, "info");
     },
   });
 }

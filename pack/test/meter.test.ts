@@ -5,7 +5,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import meter from "../extensions/meter.ts";
 
 const DEFAULT_MODELS_URL = "https://api.nusagate.com/api/public/models";
-const SALDO = "Saldo: tidak tersedia (belum ada endpoint saldo berbasis API key di NusaGate)";
+/** The wallet row, normalized like costLine so column padding does not matter. */
+const saldoLine = (report: string) =>
+  (report.split("\n").find((line) => line.startsWith("Saldo ")) as string).replace(/^Saldo\s+/, "Saldo ");
 
 type Usage = { input: number; cacheRead?: number; cacheWrite?: number; output: number };
 type Ctx = {
@@ -59,24 +61,46 @@ function harness() {
         { message: { role: "assistant", provider: "nusagate", model, usage: { cacheRead: 0, cacheWrite: 0, ...usage } } },
         ctx,
       ),
-    /** The /nusa command is the report surface; agent_end also notifies once requests > 0. */
+    /** The /usage command is the report surface; agent_end also notifies once requests > 0. */
     report: async () => {
-      await commands.nusa("", ctx);
+      await commands.usage("", ctx);
+      return notifications.at(-1) as string;
+    },
+    topup: async () => {
+      await commands.topup("", ctx);
       return notifications.at(-1) as string;
     },
   };
 }
 
-function stubFetch(body: unknown, init: { ok?: boolean; status?: number } = {}) {
+const BALANCE_URL = "https://api.nusagate.com/v1/balance";
+/** Default wallet response; tests override it via `stubFetch(body, { balance })`. */
+const DEFAULT_BALANCE = { balance: 250_000, currency: "IDR" };
+
+/**
+ * Stubs fetch for both catalog and wallet. `body` answers the price catalog;
+ * `init.balance` answers `/v1/balance` and defaults to a funded wallet.
+ */
+function stubFetch(
+  body: unknown,
+  init: { ok?: boolean; status?: number; balance?: unknown; balanceStatus?: number } = {},
+) {
   const calls: string[] = [];
   globalThis.fetch = (async (input: unknown) => {
-    calls.push(String(input));
+    const url = String(input);
+    calls.push(url);
+    if (url === BALANCE_URL) {
+      const status = init.balanceStatus ?? 200;
+      return { ok: status < 400, status, json: async () => init.balance ?? DEFAULT_BALANCE };
+    }
     return { ok: init.ok ?? true, status: init.status ?? 200, json: async () => body };
   }) as unknown as typeof fetch;
   return calls;
 }
 
-const costLine = (report: string) => report.split("\n").find((line) => line.startsWith("Biaya sesi ")) as string;
+/** The cost row, normalized so tests assert amounts rather than column padding. */
+const costLine = (report: string) =>
+  (report.split("\n").find((line) => line.startsWith("Biaya sesi ")) as string).replace(/^Biaya sesi\s+/, "Biaya sesi ");
 
 /** Restores globalThis.fetch after each test. */
 function restoreFetch(t: { after: (fn: () => void) => void }) {
@@ -101,12 +125,14 @@ test("bills with the gateway formula: cacheWrite as fresh input, cacheRead at th
   assert.equal(
     h.notifications.at(-1),
     [
-      "NusaCode meter · nusagate/test-model",
-      "Request 1 · token 375.0k (input 150.0k · cache 200.0k · output 25.0k)",
-      "Cache hit 57.1%",
-      "Biaya sesi Rp 660",
+      "NusaCode · nusagate/test-model",
+      "─".repeat(32),
+      "Request     1 request",
+      "Token       375.0k · input 150.0k · cache 200.0k · output 25.0k",
+      "Cache hit   █████████░░░░░░░ 57.1%",
+      "Biaya sesi  Rp 660",
       `Harga: ${DEFAULT_MODELS_URL} (fetch sekali saat session_start)`,
-      SALDO,
+      "Saldo       Rp 250.000",
     ].join("\n"),
   );
 });
@@ -209,4 +235,66 @@ test("fetches NUSAGATE_MODELS_URL when it is set", async (t) => {
   assert.equal(calls[0], "https://prices.test/models");
   h.respond("test-model", { input: 1_000_000, output: 0 });
   assert.match(await h.report(), /^Harga: https:\/\/prices\.test\/models \(fetch sekali saat session_start\)$/m);
+});
+
+test("reports an empty session without a request table", async (t) => {
+  restoreFetch(t);
+  stubFetch(catalog(priceRow("test-model", { inputPer1M: 3000, outputPer1M: 6000 })));
+  const h = harness();
+  await h.start();
+
+  assert.deepEqual((await h.report()).split("\n").slice(2, 4), ["Belum ada pemakaian di sesi ini.", `Harga: ${DEFAULT_MODELS_URL} (fetch sekali saat session_start)`]);
+});
+
+test("shows the wallet balance and the pass quota", async (t) => {
+  restoreFetch(t);
+  stubFetch(catalog(priceRow("test-model", { inputPer1M: 3000, outputPer1M: 6000 })), {
+    balance: {
+      balance: 3_992_912,
+      currency: "IDR",
+      pass: { valueTotalIdr: 500_000, valueUsedIdr: 12_242, valueRemainingIdr: 487_758, endsAt: "2026-11-30T17:28:28.826Z" },
+    },
+  });
+  const h = harness();
+  await h.start();
+
+  const report = await h.report();
+  assert.equal(saldoLine(report), "Saldo Rp 3.992.912");
+  assert.match(report, /^Pass\s+Rp 487\.758 sisa dari Rp 500\.000 · s\/d 2026-11-30$/m);
+});
+
+test("adds the topup link when the balance runs low", async (t) => {
+  restoreFetch(t);
+  stubFetch(catalog(priceRow("test-model", { inputPer1M: 3000, outputPer1M: 6000 })), { balance: { balance: 4_000 } });
+  const h = harness();
+  await h.start();
+
+  assert.match(await h.report(), /^Saldo menipis · top up: https:\/\/nusagate\.com\/dashboard\/wallet\?src=cli&key=nsk_abcdefg$/m);
+});
+
+test("keeps billing when the balance endpoint fails", async (t) => {
+  restoreFetch(t);
+  stubFetch(catalog(priceRow("test-model", { inputPer1M: 3000, outputPer1M: 6000 })), { balanceStatus: 503 });
+  const h = harness();
+  await h.start();
+
+  h.respond("test-model", { input: 1_000_000, output: 0 });
+
+  const report = await h.report();
+  assert.equal(costLine(report), "Biaya sesi Rp 3.000");
+  assert.equal(saldoLine(report), "Saldo tidak tersedia (HTTP 503)");
+});
+
+test("/topup reports the balance next to the link", async (t) => {
+  restoreFetch(t);
+  stubFetch(catalog(priceRow("test-model", { inputPer1M: 3000, outputPer1M: 6000 })));
+  const h = harness();
+  await h.start();
+
+  await h.topup();
+
+  assert.equal(
+    h.notifications.at(-1),
+    "Saldo: Rp 250.000\nTop up: https://nusagate.com/dashboard/wallet?src=cli&key=nsk_abcdefg",
+  );
 });

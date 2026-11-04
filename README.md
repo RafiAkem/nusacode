@@ -54,8 +54,8 @@ URL katalog harga bisa diganti lewat `NUSAGATE_MODELS_URL`; meter membacanya saa
 
 | Perintah | Deskripsi |
 | --- | --- |
-| `/nusa` | Tampilkan meter biaya sesi (rupiah, token, penghematan) |
-| `/topup` | Tampilkan link top up saldo NusaGate |
+| `/usage` | Tampilkan meter biaya sesi (rupiah, token, penghematan) |
+| `/topup` | Tampilkan saldo dan link top up saldo NusaGate |
 
 ## Subagent `task`
 
@@ -79,8 +79,10 @@ dari katalog publik NusaGate. Tiap respons dihitung dengan rumus penagihan gatew
 tarif input + tarif output + cache-hit (persentase dari tarif input), dijumlahkan lalu
 dibulatkan ke atas per request (`Math.ceil`). Tidak ada harga yang di-hardcode.
 
-Saldo tidak ditampilkan: NusaGate belum punya endpoint saldo berautentikasi API key,
-sehingga meter hanya melaporkan biaya, token, dan perbandingan dengan harga resmi vendor.
+Saldo diambil dari `GET https://api.nusagate.com/v1/balance` dengan API key yang sama
+saat `session_start` dan di setiap `/usage` atau `/topup`. URL-nya bisa diganti lewat
+`NUSAGATE_BALANCE_URL`. Bila akun punya pass bulanan, sisa kuotanya ikut ditampilkan,
+dan link top up muncul otomatis di laporan ketika saldo di bawah Rp 5.000.
 
 ## Token saver
 
@@ -126,7 +128,8 @@ bin/nusacode.js              launcher: seed konfigurasi, lalu jalankan pi
 config/settings.default.json provider dan model default
 config/models.json           definisi provider nusagate
 config/agents/*.md           lima definisi agent untuk tool task
-pack/extensions/meter.ts     meter biaya rupiah + perintah /nusa dan /topup
+pack/extensions/meter.ts     meter biaya rupiah + perintah /usage dan /topup
+pack/extensions/brand.ts     header startup (wordmark NusaCode)
 pack/extensions/token-saver.ts  cache guard, pemotongan output, routing thinking
 pack/extensions/subagents.ts tool task dan protokol usage anak
 ```
