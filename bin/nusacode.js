@@ -12,7 +12,11 @@ const root = path.join(__dirname, "..");
 
 // pi updates a global pi, not the copy this package pins, so it can't update NusaCode.
 if (process.argv[2] === "update") {
-  console.log("NusaCode runs from a checkout. To update it, run this in the repo:\n\n  git pull && npm install\n");
+  if (fs.existsSync(path.join(root, ".git"))) {
+    console.log("NusaCode is running from a checkout. To update it, run this in the repo:\n\n  git pull && npm install\n");
+  } else {
+    console.log("To update NusaCode, run:\n\n  npm install -g nusacode@latest\n");
+  }
   console.log('To send "update" to the agent as a prompt, add more words in quotes: nusacode "update the readme"');
   process.exit(0);
 }
