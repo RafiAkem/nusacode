@@ -455,7 +455,7 @@ export default function brand(pi: ExtensionAPI) {
   pi.on("session_start", (event, ctx) => {
     if (ctx.mode !== "tui") return;
     mountStatusBar(pi, ctx);
-    ctx.ui.setHiddenThinkingLabel(`Thinking (${keyText("app.thinking.toggle")} to expand)`);
+    ctx.ui.setHiddenThinkingLabel(`▸ reasoning (${keyText("app.thinking.toggle")} to expand)`);
     const view: WelcomeView = {
       version: readVersion(),
       model: modelLabel(ctx.model),
