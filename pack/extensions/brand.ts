@@ -86,6 +86,7 @@ const SESSION_SLOTS = 4;
 const GREETING = "Selamat datang!";
 /** Document row of the logo's first line: pi's spacer, top border, greeting and blanks. */
 const LOGO_TOP_ROW = 5;
+const MAX_ACTIVITY_WIDTH = 60;
 
 const TIPS = [
   "/usage menampilkan biaya sesi, token, dan saldo.",
@@ -396,11 +397,32 @@ function mountStatusBar(pi: ExtensionAPI, ctx: ExtensionContext): void {
   }));
 }
 
+/** What the spinner says while a tool runs, e.g. "Membaca README.md". */
+export function describeTool(name: string, args: unknown): string {
+  const input = (typeof args === "object" && args !== null ? args : {}) as Record<string, unknown>;
+  const text = (key: string) => (typeof input[key] === "string" ? (input[key] as string).replace(/\s+/g, " ").trim() : "");
+  const full = text("path") || text("command") || text("pattern") || text("prompt");
+  const target = full.length > MAX_ACTIVITY_WIDTH ? `${full.slice(0, MAX_ACTIVITY_WIDTH)}…` : full;
+  const verbs: Record<string, string> = {
+    read: "Membaca",
+    write: "Menulis",
+    edit: "Mengedit",
+    bash: "Menjalankan",
+    powershell: "Menjalankan",
+    grep: "Mencari",
+    find: "Mencari",
+    ls: "Melihat",
+    task: "Mendelegasikan",
+  };
+  const verb = verbs[name.toLowerCase()] ?? `Memakai ${name}`;
+  return target ? `${verb} ${target}` : verb;
+}
+
 function keyTips(): [string, string][] {
   return [
-    ["/", "untuk perintah"],
-    ["!", "untuk menjalankan bash"],
+    ["/", "untuk perintah · ! untuk bash"],
     [keyText("app.model.select"), "untuk ganti model"],
+    [`${keyText("app.thinking.toggle")} · ${keyText("app.tools.expand")}`, "buka pikiran · output tool"],
     [`${keyText("app.interrupt")} · ${keyText("app.exit")}`, "untuk hentikan · keluar"],
   ];
 }
@@ -428,6 +450,7 @@ export default function brand(pi: ExtensionAPI) {
   pi.on("session_start", (event, ctx) => {
     if (ctx.mode !== "tui") return;
     mountStatusBar(pi, ctx);
+    ctx.ui.setHiddenThinkingLabel(`Berpikir (${keyText("app.thinking.toggle")} untuk membuka)`);
     const view: WelcomeView = {
       version: readVersion(),
       model: ctx.model?.name ?? "Belum ada model",
@@ -458,5 +481,19 @@ export default function brand(pi: ExtensionAPI) {
 
   pi.on("agent_start", () => {
     header?.freeze();
+  });
+
+  let runningTools = 0;
+  pi.on("tool_execution_start", (event, ctx) => {
+    runningTools += 1;
+    if (ctx.mode === "tui") ctx.ui.setWorkingMessage(describeTool(event.toolName, event.args));
+  });
+  pi.on("tool_execution_end", (_event, ctx) => {
+    runningTools = Math.max(0, runningTools - 1);
+    if (ctx.mode === "tui" && runningTools === 0) ctx.ui.setWorkingMessage();
+  });
+  pi.on("agent_end", (_event, ctx) => {
+    runningTools = 0;
+    if (ctx.mode === "tui") ctx.ui.setWorkingMessage();
   });
 }

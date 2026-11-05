@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import brand, {
+  describeTool,
   logoFrame,
   sessionLabel,
   statusBarLines,
@@ -130,6 +131,7 @@ function mount(docRows: number, entries: unknown[] = []) {
       },
       ui: {
         setFooter: () => {},
+        setHiddenThinkingLabel: () => {},
         setHeader: (factory: (tui: unknown, theme: Theme) => typeof component) => {
           component = factory(tui, theme);
         },
@@ -205,6 +207,16 @@ test("status bar shows optional parts only when they apply", () => {
     theme,
   ).map(plain);
   assert.equal(line, "◆ deepseek-v4.1-flash • high · nusacode · rilis");
+});
+
+test("the spinner names what each tool is working on", () => {
+  assert.equal(describeTool("read", { path: "README.md" }), "Membaca README.md");
+  assert.equal(describeTool("bash", { command: "npm  test\n--watch" }), "Menjalankan npm test --watch");
+  assert.equal(describeTool("grep", { pattern: "foo" }), "Mencari foo");
+  assert.equal(describeTool("write", {}), "Menulis");
+  assert.equal(describeTool("web_fetch", { url: "x" }), "Memakai web_fetch");
+  assert.equal(describeTool("read", null), "Membaca");
+  assert.ok(describeTool("bash", { command: "x".repeat(500) }).length < 80);
 });
 
 test("timeAgo buckets", () => {

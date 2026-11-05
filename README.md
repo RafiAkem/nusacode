@@ -43,6 +43,14 @@ Penyalinan memakai `COPYFILE_EXCL`: file yang sudah ada tidak pernah ditimpa, ja
 salinan Anda tetap utuh saat versi baru dijalankan. Direktori home tersebut
 dipakai sebagai `PI_CODING_AGENT_DIR`, dan sesi disimpan lewat `--session-dir`.
 
+`settings.json` yang sudah ada mendapat kunci default baru saat launcher berjalan; nilai
+yang sudah Anda punya tidak diubah.
+
+Mode layar defaultnya `regular`, jadi scroll ditangani terminal. Mode `fullscreen` milik pi
+memakai alternate screen, dan di Windows permintaan mouse tracking-nya bisa hilang di
+console host sehingga roda mouse berubah menjadi tombol panah. Blok thinking tertutup secara
+default; `ctrl+t` membukanya dan `ctrl+o` membuka output tool.
+
 Provider dan model default dari `config/models.json` + `config/settings.default.json`:
 provider `nusagate`, `"baseUrl": "https://api.nusagate.com/v1"`, `"api": "openai-completions"`,
 `"apiKey": "$NUSAGATE_API_KEY"`, model `deepseek-v4.1-flash` (contextWindow 1048576, maxTokens 16384).

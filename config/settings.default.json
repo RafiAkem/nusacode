@@ -2,5 +2,7 @@
   "defaultProvider": "nusagate",
   "defaultModel": "deepseek-v4.1-flash",
   "quietStartup": "header",
-  "theme": "nusagate-light/nusagate-dark"
+  "theme": "nusagate-light/nusagate-dark",
+  "tuiMode": "regular",
+  "hideThinkingBlock": true
 }

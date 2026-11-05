@@ -24,6 +24,21 @@ function seed(source, target) {
 seed(path.join(root, "config", "settings.default.json"), path.join(home, "settings.json"));
 seed(path.join(root, "config", "models.json"), path.join(home, "models.json"));
 
+// Existing homes gain defaults added since they were seeded. A key the user
+// already has keeps its value, so /settings choices survive.
+function addMissingSettings(source, target) {
+  let settings;
+  try {
+    settings = JSON.parse(fs.readFileSync(target, "utf8"));
+  } catch {
+    return; // A file we can't parse is the user's to fix; pi reports it.
+  }
+  const merged = { ...JSON.parse(fs.readFileSync(source, "utf8")), ...settings };
+  if (Object.keys(merged).length === Object.keys(settings).length) return;
+  fs.writeFileSync(target, `${JSON.stringify(merged, null, 2)}\n`);
+}
+addMissingSettings(path.join(root, "config", "settings.default.json"), path.join(home, "settings.json"));
+
 // Agent definitions for the `task` tool, seeded the same way.
 const agentsDir = path.join(home, "agents");
 fs.mkdirSync(agentsDir, { recursive: true });
