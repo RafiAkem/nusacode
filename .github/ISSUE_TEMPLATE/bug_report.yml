@@ -1,0 +1,40 @@
+name: Bug report
+description: Something isn't working
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect instead? Remove any API keys from logs and screenshots.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `npm start`
+        2. Type `/usage`
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: NusaCode commit
+      description: The output of `git rev-parse --short HEAD`
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, terminal and Node version
+      placeholder: Windows 11, Windows Terminal, Node 22.19
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Provider and model
+      placeholder: nusagate/deepseek-v4.1-flash

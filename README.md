@@ -4,7 +4,8 @@
 
 **A coding agent for your terminal that shows what every prompt costs and learns from the work it does.**
 
-Built for [NusaGate](https://nusagate.com), on top of [pi](https://github.com/earendil-works/pi).
+Optimized for [NusaGate](https://nusagate.com), but not locked to it. Built on
+[pi](https://github.com/earendil-works/pi), with room for your own providers.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-4ed899?style=flat-square&labelColor=0f3a2a)](LICENSE)
 [![Node.js >= 22.19](https://img.shields.io/badge/node-%3E%3D22.19-4ed899?style=flat-square&labelColor=0f3a2a)](package.json)
@@ -110,7 +111,9 @@ the transcript and decides whether there's a procedure worth keeping. Most sessi
 nothing is saved. If there is one, it's written to `~/.nusacode/skills/learned-<name>/SKILL.md` and applies
 from your next session, because loading it mid-session would throw away the provider's prompt cache.
 
-- **Cost:** each review is a paid model call, at most three per session, and its cost shows in the meter.
+- **Cost:** each review is a paid model call, at most three per session, and its cost shows in the meter. It uses
+  a low-cost NusaGate model if you have a NusaGate key, otherwise the model you're on. `NUSACODE_LEARN_MODEL`
+  picks a specific one.
 - **Safety:** the review has no tools, so text in a transcript can't make it act. Secrets are masked before
   they reach the model, and a skill that still looks like it holds one is refused. Only skills prefixed
   `learned-` can be touched.
@@ -204,6 +207,26 @@ Everything lives in `~/.nusacode/`, or wherever `NUSACODE_HOME` points:
 Files are only seeded once and are never replaced. When a new version adds a default setting, it's added to your
 `settings.json` without changing the values you already have.
 
+### Using other providers
+
+Add your own provider next to `nusagate` in `~/.nusacode/models.json`, then pick it with `/model`:
+
+```json
+{
+  "providers": {
+    "my-provider": {
+      "baseUrl": "https://api.example.com/v1",
+      "api": "openai-completions",
+      "apiKey": "$MY_PROVIDER_KEY",
+      "models": [{ "id": "my-model", "contextWindow": 128000, "maxTokens": 8192 }]
+    }
+  }
+}
+```
+
+Rupiah pricing, your balance and the automatic model list only work with NusaGate. Subagents use a NusaGate model by
+default, so without a NusaGate key, set your own `model` in the agents in `~/.nusacode/agents/`.
+
 ### Environment variables
 
 | Variable | Purpose |
@@ -213,6 +236,7 @@ Files are only seeded once and are never replaced. When a new version adds a def
 | `NUSACODE_SKIP_SETUP=1` | Skip first-time setup |
 | `NUSACODE_NO_SPLASH=1` | Skip the setup splash and confirmation screens |
 | `NUSACODE_NO_LEARN=1` | Turn off automatic learning |
+| `NUSACODE_LEARN_MODEL` | Model for learning reviews, as `provider/model` |
 | `NUSACODE_NO_TOKEN_SAVER=1` | Turn off all token saving |
 | `NUSACODE_TRUNCATE_LINES` | Tool output line limit; `0` turns off truncation |
 | `NUSACODE_SUBAGENT_TIMEOUT_MS` | Per-subagent timeout (default `600000`) |
@@ -232,30 +256,9 @@ global pi rather than the version this package pins. `--version` reports pi's ve
 
 ## Contributing
 
-Issues and pull requests are welcome. NusaCode has mostly been run on Windows so far, so reports from macOS and
-Linux are especially useful.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
 
-```sh
-npm test
-```
-
-Tests use `node:test` with no framework or extra dependencies, and live in `pack/test/`. Extensions run against a
-fake `pi` object and a stubbed `fetch`, so tests need no network or API key.
-
-```text
-bin/nusacode.js                  launcher: seeds config, then runs pi
-config/                          default settings, provider and subagent definitions
-pack/extensions/brand.ts         welcome screen, status bar, tool activity text
-pack/extensions/meter.ts         rupiah cost meter, /usage, /topup
-pack/extensions/models.ts        /model list from NusaGate's catalog
-pack/extensions/setup.ts         first-time setup, /setup, /import-config
-pack/extensions/learn.ts         automatic skills, /skills
-pack/extensions/token-saver.ts   cache guard, output truncation, thinking routing
-pack/extensions/subagents.ts     task tool
-pack/themes/                     nusagate-dark and nusagate-light themes
-```
-
-`pack/` is an npm workspace (`@nusacode/pack`), exposed as a pi package.
+NusaCode has mostly been run on Windows so far, so reports from macOS and Linux are especially useful.
 
 ## Acknowledgements
 
