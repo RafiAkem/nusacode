@@ -266,10 +266,10 @@ export default function meter(pi: ExtensionAPI) {
     }
     if (!prices) return `nusa · ${tokens(used)} tok · cost unavailable`;
     const prefix = totals.unpriced > 0 ? "≥ " : "";
-    const saving =
-      totals.officialIdr > 0 ? ` · −${percent(totals.officialIdr - totals.costIdr, totals.officialIdr)}` : "";
+    const prompt = totals.freshInput + totals.cacheRead;
+    const cache = prompt > 0 ? ` · cache ${percent(totals.cacheRead, prompt)}` : "";
     const speed = lastSpeed === null ? "" : ` · ${Math.round(lastSpeed)} tok/s`;
-    return `nusa · ${prefix}${idr(totals.costIdr)} · ${tokens(used)} tok${saving}${speed}`;
+    return `nusa · ${prefix}${idr(totals.costIdr)} · ${tokens(used)} tok${cache}${speed}`;
   }
 
   function summaryRows(modelId: string | undefined): SummaryRow[] {

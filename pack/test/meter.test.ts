@@ -199,7 +199,7 @@ test("flags an unpriced model as a lower bound instead of billing it at zero", a
   const report = await h.report();
   assert.equal(costLine(report), "Session cost Rp 660");
   assert.match(report, /^1 response\(s\) without a price \(model not in catalog\)$/m);
-  assert.equal(h.statuses.at(-1), "nusa · ≥ Rp 660 · 376.0k tok");
+  assert.equal(h.statuses.at(-1), "nusa · ≥ Rp 660 · 376.0k tok · cache 57.0%");
 });
 
 test("survives a non-ok price catalog and reports price unavailable", async (t) => {
