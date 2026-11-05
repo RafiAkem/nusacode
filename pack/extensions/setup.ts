@@ -12,6 +12,7 @@
  * `NUSACODE_SKIP_SETUP=1` skips the automatic run.
  */
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { runSetupSplash } from "../lib/splash.ts";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -259,6 +260,15 @@ export default function setup(pi: ExtensionAPI) {
   }
 
   async function runSetup(ctx: ExtensionContext): Promise<void> {
+    // The splash is NusaCode's only full-screen moment; keep an escape hatch for
+    // scripted runs. It is cosmetic, so a failure must never block setup.
+    if (process.env.NUSACODE_NO_SPLASH !== "1") {
+      try {
+        await runSetupSplash(ctx);
+      } catch {
+        // Fall through to the key prompt.
+      }
+    }
     await askForKey(ctx);
     const summary = importSummary(await runImport(ctx));
     // Marked at the end, so quitting halfway asks again next time.
