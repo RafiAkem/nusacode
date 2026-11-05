@@ -13,10 +13,10 @@
  */
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { agentDir } from "../lib/home.ts";
 
 const DEFAULT_MODEL = "nusagate/deepseek-v4.1-flash";
 const DEFAULT_TOOLS = "read,grep,find,ls";
@@ -71,7 +71,7 @@ function formatTokens(n: number): string {
 
 /** Agent definitions live next to pi's own config, which the launcher points at the nusacode home. */
 function agentsDir(): string {
-  return join(process.env.PI_CODING_AGENT_DIR || join(homedir(), ".nusacode"), "agents");
+  return join(agentDir(), "agents");
 }
 
 /** Frontmatter is a flat `key: value` block; anything richer would need a YAML dependency. */

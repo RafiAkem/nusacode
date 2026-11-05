@@ -5,3 +5,6 @@ node_modules/
 # internal: business numbers, prod DB details, local paths
 PLAN.md
 M*-REPORT.md
+
+# NusaCode patched copy of pi, built by the launcher and before publishing
+/vendor/

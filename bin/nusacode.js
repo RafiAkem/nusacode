@@ -50,7 +50,7 @@ function updateSettings(source, target) {
   const merged = {
     ...JSON.parse(fs.readFileSync(source, "utf8")),
     ...settings,
-    lastChangelogVersion: require(path.join(piPackageDir(), "package.json")).version,
+    lastChangelogVersion: require(path.join(root, "package.json")).version,
   };
   if (JSON.stringify(merged) === JSON.stringify(settings)) return;
   fs.writeFileSync(target, `${JSON.stringify(merged, null, 2)}\n`);
@@ -82,8 +82,27 @@ function piPackageDir() {
   return dir;
 }
 
+// NusaCode runs its own patched copy of pi (see scripts/pi-build.cjs), built once and kept
+// in vendor/pi. If it can't be built, say a read-only install, run the stock pi instead
+// of not starting at all.
+let patchedPi;
+function piDirectory() {
+  if (patchedPi) return patchedPi;
+  const stock = piPackageDir();
+  const build = require("../scripts/pi-build.cjs");
+  const options = { piDir: stock, nusacodeDir: root, target: path.join(root, "vendor", "pi") };
+  try {
+    if (!build.isCurrent(options)) build.buildPi(options);
+    patchedPi = options.target;
+  } catch (err) {
+    console.error(`nusacode: could not prepare its patched pi (${err.message}); running stock pi.`);
+    patchedPi = stock;
+  }
+  return patchedPi;
+}
+
 function piCli() {
-  const dir = piPackageDir();
+  const dir = piDirectory();
   return path.join(dir, require(path.join(dir, "package.json")).bin.pi);
 }
 
@@ -105,7 +124,15 @@ const flags = PI_COMMANDS.has(args[0]) ? [] : ["--session-dir", sessionDir, ...(
 const child = spawn(process.execPath, [piCli(), ...flags, ...args], {
   stdio: "inherit",
   // The notice says "pi update", which doesn't apply: this package pins its pi version.
-  env: { ...process.env, PI_CODING_AGENT_DIR: home, PI_SKIP_VERSION_CHECK: "1" },
+  env: {
+    ...process.env,
+    // The patched pi reads the first name; the stock pi the second.
+    NUSACODE_CODING_AGENT_DIR: home,
+    PI_CODING_AGENT_DIR: home,
+    PI_SKIP_VERSION_CHECK: "1",
+    // pi pings its own servers about installs and tags requests as coming from pi.
+    PI_TELEMETRY: "0",
+  },
 });
 
 child.on("error", (err) => {

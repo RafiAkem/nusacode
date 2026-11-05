@@ -18,6 +18,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { BALANCE_URL, KEY_CHANNEL } from "./meter.ts";
+import { agentDir } from "../lib/home.ts";
 
 const PROVIDER = "nusagate";
 const DEFAULT_MODEL = "deepseek-v4.1-flash";
@@ -48,7 +49,7 @@ export type ImportSource = { label: string; skills: FoundSkill[]; instructions: 
 export type ImportResult = { imported: string[]; skipped: string[]; instructions: boolean };
 
 function nusacodeHome(): string {
-  return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".nusacode");
+  return agentDir();
 }
 
 function isDirectory(path: string): boolean {

@@ -26,10 +26,14 @@
   "files": [
     "bin",
     "config",
+    "scripts/pi-build.cjs",
+    "scripts/build-vendor.cjs",
+    "vendor",
     "pack/package.json",
     "pack/extensions",
     "pack/lib",
     "pack/themes",
+    "CHANGELOG.md",
     "LICENSE",
     "NOTICE",
     "README.md"
@@ -40,10 +44,11 @@
   "scripts": {
     "start": "node bin/nusacode.js",
     "test": "node --test \"pack/test/*.test.ts\"",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm test",
+    "prepack": "node scripts/build-vendor.cjs"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "~1.5.0",
+    "@earendil-works/pi-coding-agent": "1.5.0",
     "@silvia-odwyer/photon-node": "^0.3.4"
   }
 }
