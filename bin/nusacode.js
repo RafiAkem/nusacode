@@ -9,7 +9,15 @@ const os = require("node:os");
 const path = require("node:path");
 
 const root = path.join(__dirname, "..");
-const home = path.resolve(process.env.NUSACODE_HOME || path.join(os.homedir(), ".nusacode"));
+
+// pi updates a global pi, not the copy this package pins, so it can't update NusaCode.
+if (process.argv[2] === "update") {
+  console.log("NusaCode runs from a checkout. To update it, run this in the repo:\n\n  git pull && npm install\n");
+  console.log('To send "update" to the agent as a prompt, add more words in quotes: nusacode "update the readme"');
+  process.exit(0);
+}
+
+const home =path.resolve(process.env.NUSACODE_HOME || path.join(os.homedir(), ".nusacode"));
 const sessionDir = path.join(home, "sessions");
 
 // Seed defaults once; never overwrite a file the user already has.
@@ -74,11 +82,16 @@ function packDir() {
 
 // Spawn node directly (no shell): bash.exe on Windows is an unusable WSL relay.
 const pack = packDir();
-const child = spawn(
-  process.execPath,
-  [piCli(), "--session-dir", sessionDir, ...(pack ? ["-e", pack] : []), ...process.argv.slice(2)],
-  { stdio: "inherit", env: { ...process.env, PI_CODING_AGENT_DIR: home } },
-);
+const args = process.argv.slice(2);
+// pi only recognizes these as commands in first position; after our flags they
+// would reach the model as a prompt, and the agent would act on them.
+const PI_COMMANDS = new Set(["install", "remove", "uninstall", "list", "config", "auth", "mcp"]);
+const flags = PI_COMMANDS.has(args[0]) ? [] : ["--session-dir", sessionDir, ...(pack ? ["-e", pack] : [])];
+const child = spawn(process.execPath, [piCli(), ...flags, ...args], {
+  stdio: "inherit",
+  // The notice says "pi update", which doesn't apply: this package pins its pi version.
+  env: { ...process.env, PI_CODING_AGENT_DIR: home, PI_SKIP_VERSION_CHECK: "1" },
+});
 
 child.on("error", (err) => {
   console.error(`nusacode: ${err.message}`);

@@ -23,7 +23,18 @@ node bin/nusacode.js
 ```
 
 All arguments pass through to `pi`, including `--version`, which therefore reports pi's version
-(currently 1.4.0), not this package's (0.1.0).
+(currently 1.4.0), not this package's (0.1.0). pi's `install`, `remove`, `list`, `config`, `auth` and
+`mcp` commands work and use the NusaCode home.
+
+## Updating
+
+```sh
+git pull && npm install
+```
+
+`nusacode update` prints these steps. It doesn't run pi's updater, which would install a separate
+global pi rather than the version this package pins. pi's update notice is turned off for the same
+reason, so moving to a new pi version is a deliberate change to `package.json`.
 
 ## First-time setup
 
@@ -161,6 +172,7 @@ Run tests with `npm test`. They use `node:test` and `node:assert/strict`, with n
 dependencies, and live in `pack/test/`.
 
 - `brand.test.ts`: startup screen layout, narrow widths, halo frames, status bar, and tool activity text.
+- `launcher.test.ts`: `update` and pi's commands never reach the model as a prompt.
 - `learn.test.ts`: when a review runs, secret masking, and skill name and body validation.
 - `models.test.ts`: catalog to model list, the startup cache, and a corrupt catalog.
 - `meter.test.ts`: rupiah arithmetic (rounding up per request, cache pricing and its fallback, models with
