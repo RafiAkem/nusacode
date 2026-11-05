@@ -24,5 +24,6 @@
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*",
     "@earendil-works/pi-tui": "*"
-  }
+  },
+  "private": true
 }

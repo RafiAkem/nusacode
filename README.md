@@ -27,17 +27,15 @@ Optimized for [NusaGate](https://nusagate.com), but not locked to it. Built on
 You need [Node.js](https://nodejs.org) 22.19 or newer and a [NusaGate](https://nusagate.com) API key.
 
 ```sh
-git clone https://github.com/RafiAkem/nusacode.git
-cd nusacode
-npm install
-npm start
+npm install -g nusacode
+nusacode
 ```
 
 The first run asks for your API key and offers to import skills from other coding agents. Then just
 type what you want done.
 
-> [!NOTE]
-> NusaCode isn't on npm yet, so it runs from a checkout. To update, run `git pull && npm install`.
+To try it without installing, run `npx nusacode`. To update, run `npm install -g nusacode@latest`.
+To run from source instead, see [Contributing](#contributing).
 
 ## See it in action
 

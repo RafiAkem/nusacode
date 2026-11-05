@@ -1,14 +1,35 @@
 {
-  "name": "@nusacode/cli",
+  "name": "nusacode",
   "version": "0.1.0",
-  "description": "Coding agent CLI for NusaGate, built on pi (MIT).",
+  "description": "A coding agent for your terminal that shows what every prompt costs and learns from the work it does. Built on pi (MIT).",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RafiAkem/nusacode.git"
+  },
+  "homepage": "https://github.com/RafiAkem/nusacode#readme",
+  "bugs": {
+    "url": "https://github.com/RafiAkem/nusacode/issues"
+  },
+  "keywords": [
+    "coding-agent",
+    "cli",
+    "ai",
+    "llm",
+    "terminal",
+    "nusagate",
+    "pi-package"
+  ],
   "bin": {
     "nusacode": "bin/nusacode.js"
   },
   "files": [
     "bin",
     "config",
+    "pack/package.json",
+    "pack/extensions",
+    "pack/lib",
+    "pack/themes",
     "LICENSE",
     "NOTICE",
     "README.md"
@@ -16,15 +37,13 @@
   "engines": {
     "node": ">=22.19.0"
   },
-  "workspaces": [
-    "pack"
-  ],
   "scripts": {
     "start": "node bin/nusacode.js",
-    "test": "node --test \"pack/test/*.test.ts\""
+    "test": "node --test \"pack/test/*.test.ts\"",
+    "prepublishOnly": "npm test"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "~1.5.0",
-    "@nusacode/pack": "^0.1.0"
+    "@silvia-odwyer/photon-node": "^0.3.4"
   }
 }
