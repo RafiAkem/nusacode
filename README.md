@@ -55,6 +55,10 @@ Provider dan model default dari `config/models.json` + `config/settings.default.
 provider `nusagate`, `"baseUrl": "https://api.nusagate.com/v1"`, `"api": "openai-completions"`,
 `"apiKey": "$NUSAGATE_API_KEY"`, model `deepseek-v4.1-flash` (contextWindow 1048576, maxTokens 16384).
 
+Daftar `/model` diambil dari katalog NusaGate dan disimpan di `nusagate-models.json`, jadi model
+yang dipilih tetap dikenali saat startup sebelum jaringan selesai. Katalog tidak memuat kapabilitas,
+jadi semua model memakai batas yang sama dengan `models.json`: input teks dan tanpa parameter thinking.
+
 URL katalog harga bisa diganti lewat `NUSAGATE_MODELS_URL`; meter membacanya saat
 `session_start` dan memakai `https://api.nusagate.com/api/public/models` bila tidak diset.
 
@@ -145,6 +149,7 @@ tanpa framework dan tanpa dependensi tambahan, dan berada di `pack/test/`.
 
 - `brand.test.ts` — tata letak layar startup, lebar sempit, dan frame animasi halo.
 - `learn.test.ts` — kapan review berjalan, penyamaran secret, validasi nama dan isi skill.
+- `models.test.ts` — katalog menjadi daftar model, cache startup, dan katalog yang rusak.
 - `meter.test.ts` — aritmetika rupiah meter: pembulatan ke atas per request, harga cache
   dan fallback-nya, model tanpa harga, serta fetch harga yang gagal.
 - `token-saver.test.ts` — pemotongan output dan pointer `offset`, serta peringatan cache
@@ -167,6 +172,7 @@ pack/extensions/brand.ts     layar startup (logo N dengan halo beranimasi, tips,
 pack/themes/*.json           tema nusagate-dark dan nusagate-light (warna nusagate.com)
 pack/extensions/token-saver.ts  cache guard, pemotongan output, routing thinking
 pack/extensions/subagents.ts tool task dan protokol usage anak
+pack/extensions/models.ts    daftar model /model dari katalog NusaGate
 pack/extensions/learn.ts     skill otomatis dari pekerjaan yang selesai + perintah /skills
 ```
 

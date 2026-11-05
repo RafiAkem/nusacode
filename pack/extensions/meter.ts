@@ -22,6 +22,8 @@ const STATUS_KEY = "nusa-meter";
 const USAGE_CHANNEL = "nusacode:usage";
 /** Wallet and price rows for the startup screen in brand.ts. */
 export const SUMMARY_CHANNEL = "nusacode:usage-summary";
+/** Raw catalog rows, for the model list in models.ts. */
+export const CATALOG_CHANNEL = "nusacode:catalog";
 const FETCH_TIMEOUT_MS = 5_000;
 /** Below this the report carries the topup link. */
 const LOW_BALANCE_IDR = 5_000;
@@ -156,11 +158,12 @@ function billIdr(price: Price, fresh: number, cached: number, output: number): n
   return Math.ceil(raw);
 }
 
-async function fetchPrices(url: string): Promise<Map<string, Price>> {
+async function fetchPrices(url: string, onCatalog: (rows: unknown[]) => void): Promise<Map<string, Price>> {
   const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const body = asRecord(await res.json());
   const rows = body && Array.isArray(body.data) ? body.data : [];
+  onCatalog(rows);
   const prices = new Map<string, Price>();
   for (const row of rows) {
     const id = asRecord(row)?.id;
@@ -389,7 +392,7 @@ export default function meter(pi: ExtensionAPI) {
     apiKey = key;
     // Prices and wallet are independent; one failing must not hide the other.
     await Promise.all([
-      fetchPrices(priceSource).then(
+      fetchPrices(priceSource, (rows) => pi.events.emit(CATALOG_CHANNEL, rows)).then(
         (result) => {
           prices = result;
         },
