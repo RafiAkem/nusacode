@@ -25,6 +25,8 @@ const MAX_OUTPUT_TOKENS = 16_384;
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 /** Reasoning models on the gateway: they take `thinking` and return `reasoning_content`. */
 const REASONING = /^deepseek-/;
+/** Models known to accept image input. The catalog does not say, so this is an explicit list. */
+const VISION = /^deepseek-v4.1-flash$/;
 
 export type CatalogModel = { id: string; name: string; contextWindow: number };
 
@@ -74,7 +76,7 @@ function register(pi: ExtensionAPI, models: CatalogModel[]): void {
       ...(REASONING.test(id)
         ? { reasoning: true, compat: { thinkingFormat: "deepseek" as const, supportsReasoningEffort: true } }
         : { reasoning: false }),
-      input: ["text"],
+      input: VISION.test(id) ? ["text", "image"] : ["text"],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow,
       maxTokens: MAX_OUTPUT_TOKENS,
