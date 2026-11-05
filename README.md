@@ -34,7 +34,8 @@ git pull && npm install
 
 `nusacode update` prints these steps. It doesn't run pi's updater, which would install a separate
 global pi rather than the version this package pins. pi's update notice is turned off for the same
-reason, so moving to a new pi version is a deliberate change to `package.json`.
+reason, so moving to a new pi version is a deliberate change to `package.json`. pi's changelog is
+hidden too, by keeping `lastChangelogVersion` current, because it describes pi rather than NusaCode.
 
 ## First-time setup
 
