@@ -59,6 +59,17 @@ what that cost. The session and its costs are real; only the balance is sample d
 | **Sends images** | Paste an image or an image file's path: it becomes an `[Image #1]` token with a thumbnail above the prompt box, and the real image goes to the model. `alt+i` enlarges it. Needs a vision model such as DeepSeek V4.1 Flash. |
 | **Stays readable** | Thinking starts collapsed, the spinner names what the agent is doing right now, and each finished tool call gets a one-line outcome such as `42 lines · 0.3s`. |
 
+## Remote control
+
+`/remote` starts a small web page for the session you have open. Open the link it prints to watch the
+conversation live, send messages, and stop the agent from a browser, for example on your phone.
+
+- It listens on `127.0.0.1` only and needs a random token, so nothing is exposed by default.
+- To reach it from another device, tunnel to the port with [Tailscale](https://tailscale.com) or
+  `ssh -L 7842:127.0.0.1:7842 your-computer`, then open the link there.
+- The page cannot answer questions or dialogs that are open in the terminal, such as the `ask` panel.
+- Set `NUSACODE_REMOTE_PORT` to choose the port (default 7842).
+
 ## Commands
 
 | Command | What it does |
@@ -72,6 +83,7 @@ what that cost. The session and its costs are real; only the balance is sample d
 | `/setup` | Run first-time setup again |
 | `/sessions` | Switch session in one step; add words to filter, or `all` to search every folder |
 | `/resume` | Continue an earlier session |
+| `/remote` | Watch and steer this session from a browser. `/remote status`, `/remote stop`, or start with `nusacode --remote` |
 
 Start a message with `!` to run a shell command, or `!!` to run it without sending the output to the model.
 

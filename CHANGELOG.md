@@ -11,6 +11,7 @@ First public release.
 - An `ask` tool that shows a multiple-choice questions panel.
 - Image attachments: paste an image or a file path, preview it above the prompt box, and enlarge it with `alt+i`.
 - `/thinking` levels for DeepSeek models.
+- `/remote` to watch and steer a session from a browser, over localhost with a token.
 - Learned skills, subagents through the `task` tool, and token-saving defaults.
 - Dark and light themes, and a startup screen.
 
