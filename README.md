@@ -1,214 +1,258 @@
+<div align="center">
+
 # NusaCode
 
-A coding agent CLI for NusaGate, built on `pi` (`@earendil-works/pi-coding-agent`, MIT), with
-extensions for a cost meter, token saving, subagents and learning. MIT licensed.
+**A coding agent for your terminal that shows what every prompt costs and learns from the work it does.**
 
-## Install
+Built for [NusaGate](https://nusagate.com), on top of [pi](https://github.com/earendil-works/pi).
 
-Requires Node.js >= 22.19.0 (see `engines` in `package.json`).
+[![License: MIT](https://img.shields.io/badge/license-MIT-4ed899?style=flat-square&labelColor=0f3a2a)](LICENSE)
+[![Node.js >= 22.19](https://img.shields.io/badge/node-%3E%3D22.19-4ed899?style=flat-square&labelColor=0f3a2a)](package.json)
+[![Built on pi](https://img.shields.io/badge/built%20on-pi-4ed899?style=flat-square&labelColor=0f3a2a)](https://github.com/earendil-works/pi)
+
+[Quick start](#quick-start) · [Features](#features) · [Commands](#commands) · [Configuration](#configuration) · [Contributing](#contributing)
+
+<br>
+
+<img src="docs/welcome.svg" alt="NusaCode's welcome screen: an ASCII N logo with an orbiting halo, key tips, usage and recent sessions" width="820">
+
+<sub>The welcome screen, with sample data.</sub>
+
+</div>
+
+## Quick start
+
+You need [Node.js](https://nodejs.org) 22.19 or newer and a [NusaGate](https://nusagate.com) API key.
 
 ```sh
+git clone https://github.com/RafiAkem/nusacode.git
+cd nusacode
 npm install
 npm start
 ```
 
-The first run asks for your NusaGate API key and offers to import from other coding agents.
-You can also set `NUSAGATE_API_KEY` yourself.
+The first run asks for your API key and offers to import skills from other coding agents. Then just
+type what you want done.
 
-The package isn't published to npm yet, so NusaCode runs from a checkout; `npx nusacode` only
-works inside the repo directory. You can also run the launcher directly:
+> [!NOTE]
+> NusaCode isn't on npm yet, so it runs from a checkout. To update, run `git pull && npm install`.
 
-```sh
-node bin/nusacode.js
-```
+## Features
 
-All arguments pass through to `pi`, including `--version`, which therefore reports pi's version
-(currently 1.5.0), not this package's (0.1.0). pi's `install`, `remove`, `list`, `config`, `auth` and
-`mcp` commands work and use the NusaCode home.
-
-## Updating
-
-```sh
-git pull && npm install
-```
-
-`nusacode update` prints these steps. It doesn't run pi's updater, which would install a separate
-global pi rather than the version this package pins. pi's update notice is turned off for the same
-reason, so moving to a new pi version is a deliberate change to `package.json`. pi's changelog is
-hidden too, by keeping `lastChangelogVersion` current, because it describes pi rather than NusaCode.
-
-## First-time setup
-
-Setup runs once, on your first new session, and has two steps:
-
-1. **API key:** if none is configured, it asks for one, checks it against NusaGate, and stores it
-   in `auth.json` in the NusaCode home.
-2. **Import:** for each of Claude Code, Codex, oh-my-pi, pi and OpenCode that it finds, it asks
-   whether to copy that agent's skills and global instructions.
-
-Import never overwrites anything. It skips dot folders (agents keep deleted skills in places like
-`skills/.trash`), dot files, symlinks, and skills over 5 MB. It does not copy API keys or MCP
-servers: those hold secrets and start processes. Imported files load in your sessions, so only
-import from agents you trust. They apply from your next session.
-
-`/setup` runs it again, `/import-config` runs only the import, and `NUSACODE_SKIP_SETUP=1` skips
-the automatic run.
-
-## Configuration
-
-On first run, the launcher copies the default configuration into the home directory:
-`NUSACODE_HOME`, or `~/.nusacode` if that isn't set.
-
-```text
-~/.nusacode/
-  settings.json          # from config/settings.default.json
-  models.json            # from config/models.json
-  agents/*.md            # from config/agents/
-  skills/                # imported and learned skills
-  sessions/              # session history
-```
-
-Copying uses `COPYFILE_EXCL`, so existing files are never replaced when a new version runs. An
-existing `settings.json` gains any new default keys, and values you already have stay as they are.
-The home directory is used as `PI_CODING_AGENT_DIR`, and sessions are stored through `--session-dir`.
-
-The default screen mode is `regular`, so your terminal handles scrolling. pi's `fullscreen` mode
-uses the alternate screen, and on Windows the console host can drop its mouse tracking request, which
-turns the wheel into arrow keys. Thinking blocks start collapsed: `ctrl+t` expands them and `ctrl+o`
-expands tool output.
-
-The default provider and model come from `config/models.json` and `config/settings.default.json`:
-provider `nusagate`, `"baseUrl": "https://api.nusagate.com/v1"`, `"api": "openai-completions"`,
-`"apiKey": "$NUSAGATE_API_KEY"`, model `deepseek-v4.1-flash` (contextWindow 1048576, maxTokens 16384).
-
-The `/model` list comes from NusaGate's catalog and is cached in `nusagate-models.json`, so a saved
-model still resolves at startup before the network finishes. The catalog has no capability fields,
-so every model uses the same limits as `models.json`: text input and no thinking parameter.
-
-`NUSAGATE_MODELS_URL` overrides the catalog URL; the meter reads it at session start and defaults
-to `https://api.nusagate.com/api/public/models`.
+|  |  |
+| --- | --- |
+| **Real costs in rupiah** | Each response is priced with the gateway's own billing formula, using live prices. Your balance, cost, cache hit rate and speed stay in view. |
+| **Every NusaGate model** | `/model` lists the live catalog: DeepSeek, GPT, Gemini, GLM, Grok, Kimi, MiniMax, Qwen and more. |
+| **Learns as you work** | After substantial tasks, a background review can save what it learned as a reusable skill. |
+| **Brings your setup with it** | Import skills and global instructions from Claude Code, Codex, oh-my-pi, pi and OpenCode. |
+| **Spends fewer tokens** | Tool output is trimmed, thinking effort drops for simple prompts, and you're warned when something breaks the prompt cache. |
+| **Delegates to subagents** | The `task` tool hands focused work to separate processes, so exploration stays out of your main conversation. |
+| **Stays readable** | Thinking starts collapsed, and the spinner names what the agent is doing right now. |
 
 ## Commands
 
-| Command | Description |
+| Command | What it does |
 | --- | --- |
-| `/usage` | Show the session cost meter (rupiah, tokens, savings, speed) |
-| `/topup` | Show your balance and a NusaGate top-up link |
-| `/skills` | List automatically learned skills; `/skills delete <name>` deletes one |
-| `/setup` | Run first-time setup again |
+| `/usage` | Show session cost, tokens, cache hit rate, speed and balance |
+| `/topup` | Show your balance and a top-up link |
+| `/model` | Switch model |
+| `/skills` | List learned skills; `/skills delete <name>` removes one |
 | `/import-config` | Import skills and instructions from other coding agents |
+| `/setup` | Run first-time setup again |
+| `/resume` | Continue an earlier session |
 
-## The `task` subagent
+Start a message with `!` to run a shell command, or `!!` to run it without sending the output to the model.
 
-The `task` tool delegates one self-contained job to a separate `pi` process with its own context
-window, in the same working directory. The child can't see the parent's conversation, so the prompt
-must contain every fact it needs.
+| Key | Action |
+| --- | --- |
+| `ctrl+t` | Expand or collapse thinking |
+| `ctrl+o` | Expand or collapse tool output |
+| `ctrl+l` | Switch model |
+| `escape` | Interrupt the agent |
+| `ctrl+d` | Exit |
 
-Available agents, each with a model and tool list in its frontmatter: `explorer` (default),
-`researcher`, `reviewer`, `test-runner`, `writer`.
+## How it works
 
-Children run with `--no-session` and a `--tools` allowlist from the agent definition, so recursion is
-closed structurally: the allowlist never contains `task`, the extension pack isn't loaded
-(`--no-extensions`), and the child's environment carries `NUSACODE_SUBAGENT=1`. At most four children
-run at once; the rest wait. Each child times out after `600_000` ms, which
-`NUSACODE_SUBAGENT_TIMEOUT_MS` overrides.
+<details>
+<summary><strong>Cost meter</strong></summary>
 
-## Cost meter
+<br>
 
-Tokens come from `usage` in the provider response; rupiah prices are fetched once per session from
-NusaGate's public catalog. Each response uses the gateway's billing formula: input rate + output rate
-+ cache hits (a percentage of the input rate), summed and rounded up per request (`Math.ceil`). No
-price is hardcoded.
+Token counts come from the provider's response, and rupiah prices are fetched once per session from
+NusaGate's public catalog. No price is hardcoded. Each response uses the gateway's billing formula: input
+rate + output rate + cache hits (a percentage of the input rate), rounded up per request.
 
-Balance comes from `GET https://api.nusagate.com/v1/balance` with the same API key, at session start
-and on each `/usage` or `/topup`. `NUSAGATE_BALANCE_URL` overrides the URL. If the account has a monthly
-pass, its remaining quota is shown too, and the top-up link appears in the report when the balance is
-under Rp 5.000.
+The status bar always shows a summary, and `/usage` shows the full report. Speed (tok/s) is output tokens
+divided by the time from the first streamed chunk to the end of the response, so waiting for the model to
+start doesn't count against it.
 
-The saving against the vendor's list price in `/usage` compares fresh input and output tokens only:
-the catalog has no official cache price, so cached tokens are left out on both sides.
+The saving against the vendor's list price compares fresh input and output tokens only. The catalog has no
+official cache price, so cached tokens are left out on both sides.
 
-The full report only appears through `/usage`; the status bar always shows a summary. Speed (tok/s) is
-output tokens divided by the time from the first streamed chunk to the end of the response, so waiting
-for the model to start doesn't count.
+</details>
 
-## Automatic learning
+<details>
+<summary><strong>Automatic learning</strong></summary>
 
-After substantial work (at least 8 tool calls, or 4 if it recovered from an error), a background process
-reads the transcript and decides whether there's a procedure worth keeping. If so, it writes a skill to
-`~/.nusacode/skills/learned-<name>/SKILL.md`, which applies from the next session; loading it mid-session
-would throw away the provider's prompt cache. Existing learned skills are improved when a session proves
-them wrong or incomplete.
+<br>
 
-- **Cost:** each review is a paid model call, at most three per session, and its cost reaches the meter.
-- **Security:** the review process has no tools, so text in a transcript can't make it act. Secrets are
-  masked before reaching the model, and a skill that still looks like it holds one is refused. Only skills
-  prefixed `learned-` can be touched.
-- **Limits:** saved skills load in later sessions, and these checks can't guarantee a skill is free of
-  harmful instructions. Review them with `/skills`.
+After substantial work (at least 8 tool calls, or 4 if it recovered from an error), a background process reads
+the transcript and decides whether there's a procedure worth keeping. Most sessions teach nothing, and then
+nothing is saved. If there is one, it's written to `~/.nusacode/skills/learned-<name>/SKILL.md` and applies
+from your next session, because loading it mid-session would throw away the provider's prompt cache.
 
-`NUSACODE_NO_LEARN=1` turns this off.
+- **Cost:** each review is a paid model call, at most three per session, and its cost shows in the meter.
+- **Safety:** the review has no tools, so text in a transcript can't make it act. Secrets are masked before
+  they reach the model, and a skill that still looks like it holds one is refused. Only skills prefixed
+  `learned-` can be touched.
 
-## Token saver
+> [!WARNING]
+> Saved skills load in later sessions, and these checks can't guarantee a skill is free of harmful
+> instructions. Secret detection is pattern-based too, so it can miss a plain-looking password. Review what it
+> learns with `/skills`, or turn learning off with `NUSACODE_NO_LEARN=1`.
 
-Three levers, cheapest first:
+</details>
 
-1. **Cache prefix guard:** a fingerprint of the system prompt and tool list is computed on every request.
-   A mid-session change invalidates the provider's cached prefix, so the meter warns once, without blocking
-   or changing the payload.
-2. **Tool output truncation:** `read` and `bash` results are capped at 200 lines. pi already caps them at
-   2000 lines / 50KB, so this tightens the existing limit. `read` continues through `offset`, and `bash`
-   keeps the tail (a summary plus an output pointer).
+<details>
+<summary><strong>First-time setup and import</strong></summary>
+
+<br>
+
+Setup runs once, on your first new session. If no API key is configured, it asks for one, checks it against
+NusaGate, and stores it in `auth.json` in the NusaCode home. Then, for each agent it finds, it asks whether to
+copy that agent's skills and global instructions.
+
+Import never overwrites anything. It skips dot folders (agents keep deleted skills in places like
+`skills/.trash`), dot files, symlinks, and skills over 5 MB. It doesn't copy API keys or MCP servers, because
+those hold secrets and start processes. Imported files load in your sessions, so only import from agents you
+trust.
+
+</details>
+
+<details>
+<summary><strong>Token saver</strong></summary>
+
+<br>
+
+1. **Cache prefix guard:** the system prompt and tool list are fingerprinted on every request. A mid-session
+   change invalidates the provider's cached prefix, so the meter warns once, without blocking or changing the
+   request.
+2. **Tool output truncation:** `read` and `bash` results are capped at 200 lines, tightening pi's own limit of
+   2000 lines / 50 KB. `read` continues through `offset`, and `bash` keeps the tail with a pointer to the rest.
 3. **Thinking routing:** the level comes from settings (`modelThinkingLevels` per model, then
-   `defaultThinkingLevel`) and drops to `minimal` for short mechanical prompts while the session has no
-   failed tool. An explicit `/think` choice wins.
+   `defaultThinkingLevel`) and drops to `minimal` for short mechanical prompts while the session has no failed
+   tool. An explicit `/think` choice wins.
 
-`NUSACODE_NO_TOKEN_SAVER=1` turns all three off (used as an A/B switch). `NUSACODE_TRUNCATE_LINES=0` turns off
-truncation; other values change the line limit.
+Measured on `nusagate/deepseek-v4.1-flash` (2026-10-26), as recorded in the header of `token-saver.ts`: the
+200-line limit used 100.5k vs 97.9k tokens on the same session (+2.7%), at the same cost of Rp 22. A 50-line
+limit saved 15.4% of tokens but hid output that should have been visible.
 
-Measured on `nusagate/deepseek-v4.1-flash` (M3, 2026-10-26), as recorded in the header of `token-saver.ts`:
-the 200-line limit gave 100.5k vs 97.9k tokens on the same session (+2.7%), at the same cost of Rp 22; a
-50-line limit saved 15.4% of tokens but hid output that should have been visible.
+</details>
 
-## Tests
+<details>
+<summary><strong>Subagents</strong></summary>
 
-Run tests with `npm test`. They use `node:test` and `node:assert/strict`, with no framework or extra
-dependencies, and live in `pack/test/`.
+<br>
 
-- `brand.test.ts`: startup screen layout, narrow widths, halo frames, status bar, and tool activity text.
-- `launcher.test.ts`: `update` and pi's commands never reach the model as a prompt.
-- `learn.test.ts`: when a review runs, secret masking, and skill name and body validation.
-- `models.test.ts`: catalog to model list, the startup cache, and a corrupt catalog.
-- `meter.test.ts`: rupiah arithmetic (rounding up per request, cache pricing and its fallback, models with
-  no price, failed price fetches), speed, and the startup summary.
-- `setup.test.ts`: finding and importing skills, what import refuses, and storing the API key.
-- `token-saver.test.ts`: output truncation and the `offset` pointer, and the cache prefix warning.
-- `subagents.test.ts`: `task` tool registration, the typebox schema, the recursion guard, and frontmatter
-  parsing.
+The `task` tool delegates one self-contained job to a separate `pi` process with its own context window, in the
+same working directory. The child can't see your conversation, so the prompt must hold every fact it needs.
 
-Extensions run against a fake `pi` object and a stubbed `fetch`, so tests need no network or API key.
+Agents, each with a model and tool list in its frontmatter: `explorer` (default), `researcher`, `reviewer`,
+`test-runner` and `writer`. They're copied to `~/.nusacode/agents/`, where you can edit them.
 
-## Repo layout
+Recursion is closed structurally: the tool allowlist never contains `task`, the extension pack isn't loaded
+(`--no-extensions`), and the child's environment carries `NUSACODE_SUBAGENT=1`. At most four children run at
+once, and each times out after 10 minutes.
+
+</details>
+
+<details>
+<summary><strong>Models</strong></summary>
+
+<br>
+
+The `/model` list comes from NusaGate's catalog and is cached in `nusagate-models.json`, so a saved model still
+resolves at startup before the network finishes. The catalog has no capability fields, so every model currently
+uses the same limits: text input, no thinking parameter, and 16,384 output tokens.
+
+</details>
+
+## Configuration
+
+Everything lives in `~/.nusacode/`, or wherever `NUSACODE_HOME` points:
 
 ```text
-bin/nusacode.js              launcher: seeds config, then runs pi
-config/settings.default.json default provider, model and UI settings
-config/models.json           nusagate provider definition
-config/agents/*.md           five agent definitions for the task tool
-pack/extensions/brand.ts     startup screen, status bar, and tool activity text
-pack/extensions/meter.ts     rupiah cost meter, /usage and /topup
-pack/extensions/models.ts    /model list from NusaGate's catalog
-pack/extensions/setup.ts     first-time setup, /setup and /import-config
-pack/extensions/learn.ts     automatic skills from finished work, and /skills
-pack/extensions/token-saver.ts  cache guard, output truncation, thinking routing
-pack/extensions/subagents.ts task tool and the child usage protocol
-pack/themes/*.json           nusagate-dark and nusagate-light themes (nusagate.com's colors)
+~/.nusacode/
+├── settings.json     your settings
+├── models.json       provider definition
+├── auth.json         API key, if you entered one during setup
+├── AGENTS.md         global instructions, if imported
+├── agents/           subagent definitions
+├── skills/           imported and learned skills
+└── sessions/         session history
 ```
 
-`pack/` is an npm workspace (`@nusacode/pack`), exposed as a pi-package through
-`pi.extensions: ["./extensions"]`.
+Files are only seeded once and are never replaced. When a new version adds a default setting, it's added to your
+`settings.json` without changing the values you already have.
+
+### Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `NUSAGATE_API_KEY` | API key, instead of entering it during setup |
+| `NUSACODE_HOME` | Home directory (default `~/.nusacode`) |
+| `NUSACODE_SKIP_SETUP=1` | Skip first-time setup |
+| `NUSACODE_NO_LEARN=1` | Turn off automatic learning |
+| `NUSACODE_NO_TOKEN_SAVER=1` | Turn off all token saving |
+| `NUSACODE_TRUNCATE_LINES` | Tool output line limit; `0` turns off truncation |
+| `NUSACODE_SUBAGENT_TIMEOUT_MS` | Per-subagent timeout (default `600000`) |
+| `NUSAGATE_MODELS_URL` | Override the catalog URL |
+| `NUSAGATE_BALANCE_URL` | Override the balance URL |
+
+### Screen mode
+
+NusaCode defaults to pi's `regular` screen mode, so your terminal handles scrolling and selection. To use pi's
+fullscreen mode, with its in-app scrollbar and search, set `"tuiMode": "fullscreen"` in `settings.json`.
+
+### pi commands
+
+pi's `install`, `remove`, `list`, `config`, `auth` and `mcp` commands work through `nusacode` and use the NusaCode
+home. `nusacode update` prints the update steps instead of running pi's updater, which would install a separate
+global pi rather than the version this package pins. `--version` reports pi's version.
+
+## Contributing
+
+Issues and pull requests are welcome. NusaCode has mostly been run on Windows so far, so reports from macOS and
+Linux are especially useful.
+
+```sh
+npm test
+```
+
+Tests use `node:test` with no framework or extra dependencies, and live in `pack/test/`. Extensions run against a
+fake `pi` object and a stubbed `fetch`, so tests need no network or API key.
+
+```text
+bin/nusacode.js                  launcher: seeds config, then runs pi
+config/                          default settings, provider and subagent definitions
+pack/extensions/brand.ts         welcome screen, status bar, tool activity text
+pack/extensions/meter.ts         rupiah cost meter, /usage, /topup
+pack/extensions/models.ts        /model list from NusaGate's catalog
+pack/extensions/setup.ts         first-time setup, /setup, /import-config
+pack/extensions/learn.ts         automatic skills, /skills
+pack/extensions/token-saver.ts   cache guard, output truncation, thinking routing
+pack/extensions/subagents.ts     task tool
+pack/themes/                     nusagate-dark and nusagate-light themes
+```
+
+`pack/` is an npm workspace (`@nusacode/pack`), exposed as a pi package.
+
+## Acknowledgements
+
+NusaCode runs on [pi](https://github.com/earendil-works/pi) by earendil-works, used unmodified as a runtime
+dependency. Its attribution is in [NOTICE](NOTICE). NusaCode is an independent project, not made, sponsored or
+endorsed by pi's maintainers.
 
 ## License
 
-MIT. See `LICENSE`. NusaCode uses `pi` (MIT, earendil-works) as an unmodified runtime dependency;
-its attribution is in `NOTICE`. This project is not sponsored or endorsed by pi's maintainers.
+[MIT](LICENSE)
