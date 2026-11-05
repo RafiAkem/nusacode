@@ -7,6 +7,7 @@
 Optimized for [NusaGate](https://nusagate.com), but not locked to it. Built on
 [pi](https://github.com/earendil-works/pi), with room for your own providers.
 
+[![Tests](https://img.shields.io/github/actions/workflow/status/RafiAkem/nusacode/test.yml?branch=main&label=tests&style=flat-square&labelColor=0f3a2a)](https://github.com/RafiAkem/nusacode/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-4ed899?style=flat-square&labelColor=0f3a2a)](LICENSE)
 [![Node.js >= 22.19](https://img.shields.io/badge/node-%3E%3D22.19-4ed899?style=flat-square&labelColor=0f3a2a)](package.json)
 [![Built on pi](https://img.shields.io/badge/built%20on-pi-4ed899?style=flat-square&labelColor=0f3a2a)](https://github.com/earendil-works/pi)
