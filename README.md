@@ -58,6 +58,7 @@ what that cost. The session and its costs are real; only the balance is sample d
 | **Brings your setup with it** | Import skills and global instructions from Claude Code, Codex, oh-my-pi, pi and OpenCode. |
 | **Spends fewer tokens** | Tool output is trimmed, thinking effort drops for simple prompts, and you're warned when something breaks the prompt cache. |
 | **Delegates to subagents** | The `task` tool hands focused work to separate processes, so exploration stays out of your main conversation. |
+| **Sends images** | Paste an image or an image file's path: it becomes an `[Image #1]` token with a thumbnail above the prompt box, and the real image goes to the model. `alt+i` enlarges it. Needs a vision model such as DeepSeek V4.1 Flash. |
 | **Stays readable** | Thinking starts collapsed, the spinner names what the agent is doing right now, and each finished tool call gets a one-line outcome such as `42 lines · 0.3s`. |
 
 ## Commands
@@ -80,6 +81,9 @@ Start a message with `!` to run a shell command, or `!!` to run it without sendi
 | --- | --- |
 | `ctrl+t` | Expand or collapse thinking |
 | `ctrl+o` | Expand or collapse tool output |
+| `alt+i` | Enlarge the attached image, then the next one, then close |
+| `alt+o` | Open the attached image in your image viewer at full size |
+| `alt+v` | Paste an image or file from the clipboard (`ctrl+v` outside Windows) |
 | `ctrl+l` | Switch model |
 | `escape` | Interrupt the agent |
 | `ctrl+d` | Exit |
