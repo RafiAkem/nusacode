@@ -19,10 +19,10 @@
  * `NUSACODE_NO_LEARN=1` turns all of this off.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { runAgent, USAGE_CHANNEL } from "./subagents.ts";
+import { agentDir } from "../lib/home.ts";
 
 const REVIEW_MODEL = "nusagate/deepseek-v4.1-flash";
 const NUSAGATE = "nusagate";
@@ -103,7 +103,7 @@ function asRecord(value: unknown): Json | null {
 }
 
 function skillsDir(): string {
-  return join(process.env.PI_CODING_AGENT_DIR || join(homedir(), ".nusacode"), "skills");
+  return join(agentDir(), "skills");
 }
 
 function envSecrets(): string[] {

@@ -13,10 +13,10 @@
  * reasoning models. Rupiah costs stay in meter.ts, so pi's dollar cost stays zero.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { CATALOG_CHANNEL } from "./meter.ts";
+import { agentDir } from "../lib/home.ts";
 
 const PROVIDER = "nusagate";
 const BASE_URL = "https://api.nusagate.com/v1";
@@ -44,7 +44,7 @@ export function parseCatalog(rows: unknown): CatalogModel[] {
 }
 
 function homeDir(): string {
-  return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".nusacode");
+  return agentDir();
 }
 
 function readCache(dir: string): CatalogModel[] {

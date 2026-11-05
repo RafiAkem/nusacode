@@ -21,8 +21,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: NusaCode commit
-      description: The output of `git rev-parse --short HEAD`
+      label: NusaCode version
+      description: The output of `nusacode --version`
     validations:
       required: true
   - type: input

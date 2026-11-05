@@ -37,7 +37,7 @@ test("pi's commands run as commands, not as a prompt", (t) => {
   assert.equal(readFileSync(join(home, "models.json"), "utf8").includes("nusagate"), true);
 });
 
-test("settings keep the user's values and track pi's version so its changelog stays hidden", (t) => {
+test("settings keep the user's values and track NusaCode's version so the changelog stays hidden", (t) => {
   const home = mkdtempSync(join(tmpdir(), "nusacode-launcher-"));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const settingsPath = join(home, "settings.json");
@@ -47,8 +47,8 @@ test("settings keep the user's values and track pi's version so its changelog st
   assert.equal(status, 0, stderr);
 
   const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
-  const pi = join(import.meta.dirname, "..", "..", "node_modules", "@earendil-works", "pi-coding-agent", "package.json");
-  assert.equal(settings.lastChangelogVersion, JSON.parse(readFileSync(pi, "utf8")).version);
+  const own = join(import.meta.dirname, "..", "..", "package.json");
+  assert.equal(settings.lastChangelogVersion, JSON.parse(readFileSync(own, "utf8")).version);
   assert.equal(settings.defaultModel, "my-pick");
   assert.equal(settings.tuiMode, "regular");
 });
