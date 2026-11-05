@@ -103,7 +103,7 @@ test("NUSACODE_NO_TOKEN_SAVER=1 registers nothing at all", async (t) => {
 test("cache-prefix warning fires exactly once per change", async (t) => {
   const register = await loadWith(t, {}, "ts-warn");
   const { handlers, ctx, notifications } = harness(register);
-  const warning = "cache prefix berubah, biaya input bisa naik ~10x";
+  const warning = "cache prefix changed, input cost may rise ~10x";
   const payload = (system: string, tools: unknown[] = []) => ({ payload: { system, tools } });
 
   handlers.before_provider_request(payload("alpha"), ctx);

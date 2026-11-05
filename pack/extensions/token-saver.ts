@@ -31,7 +31,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
  * does not compress tool output at all.
  */
 const MAX_LINES = Number(process.env.NUSACODE_TRUNCATE_LINES ?? 200);
-const CACHE_WARNING = "cache prefix berubah, biaya input bisa naik ~10x";
+const CACHE_WARNING = "cache prefix changed, input cost may rise ~10x";
 const MECHANICAL = /\b(rename|ganti nama|ubah nama|replace|ganti string|ganti teks|ganti kata|find and replace|typo|sed -i)\b/i;
 
 function linesOf(text: string): string[] {

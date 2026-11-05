@@ -1,185 +1,198 @@
 # NusaCode
 
-Coding agent CLI untuk NusaGate, dibangun di atas `pi`
-(`@earendil-works/pi-coding-agent`, MIT) dengan ekstensi meter biaya, penghemat token,
-dan subagent. Lisensi MIT.
+A coding agent CLI for NusaGate, built on `pi` (`@earendil-works/pi-coding-agent`, MIT), with
+extensions for a cost meter, token saving, subagents and learning. MIT licensed.
 
-## Instalasi
+## Install
 
-Butuh Node.js >= 22.19.0 (lihat `engines` di `package.json`).
+Requires Node.js >= 22.19.0 (see `engines` in `package.json`).
 
 ```sh
 npm install
-export NUSAGATE_API_KEY=...        # ambil dari dashboard NusaGate
 npm start
 ```
 
-Paket ini belum diterbitkan ke npm, jadi NusaCode dijalankan dari checkout;
-`npx nusacode` hanya bekerja bila dijalankan di dalam direktori repo.
+The first run asks for your NusaGate API key and offers to import from other coding agents.
+You can also set `NUSAGATE_API_KEY` yourself.
 
-Semua argumen diteruskan ke `pi`, termasuk `--version`, sehingga perintah itu
-melaporkan versi pi (saat ini 1.4.0), bukan versi paket ini (0.1.0).
-
-Dari checkout repo, launcher bisa dijalankan langsung:
+The package isn't published to npm yet, so NusaCode runs from a checkout; `npx nusacode` only
+works inside the repo directory. You can also run the launcher directly:
 
 ```sh
 node bin/nusacode.js
 ```
 
-## Konfigurasi
+All arguments pass through to `pi`, including `--version`, which therefore reports pi's version
+(currently 1.4.0), not this package's (0.1.0).
 
-Saat pertama dijalankan, launcher menyalin konfigurasi default ke direktori home:
-`NUSACODE_HOME`, atau `~/.nusacode` bila variabel itu tidak diset.
+## First-time setup
+
+Setup runs once, on your first new session, and has two steps:
+
+1. **API key:** if none is configured, it asks for one, checks it against NusaGate, and stores it
+   in `auth.json` in the NusaCode home.
+2. **Import:** for each of Claude Code, Codex, oh-my-pi, pi and OpenCode that it finds, it asks
+   whether to copy that agent's skills and global instructions.
+
+Import never overwrites anything. It skips dot folders (agents keep deleted skills in places like
+`skills/.trash`), dot files, symlinks, and skills over 5 MB. It does not copy API keys or MCP
+servers: those hold secrets and start processes. Imported files load in your sessions, so only
+import from agents you trust. They apply from your next session.
+
+`/setup` runs it again, `/import-config` runs only the import, and `NUSACODE_SKIP_SETUP=1` skips
+the automatic run.
+
+## Configuration
+
+On first run, the launcher copies the default configuration into the home directory:
+`NUSACODE_HOME`, or `~/.nusacode` if that isn't set.
 
 ```text
 ~/.nusacode/
-  settings.json          # dari config/settings.default.json
-  models.json            # dari config/models.json
-  agents/*.md            # dari config/agents/
-  sessions/              # riwayat sesi
+  settings.json          # from config/settings.default.json
+  models.json            # from config/models.json
+  agents/*.md            # from config/agents/
+  skills/                # imported and learned skills
+  sessions/              # session history
 ```
 
-Penyalinan memakai `COPYFILE_EXCL`: file yang sudah ada tidak pernah ditimpa, jadi
-salinan Anda tetap utuh saat versi baru dijalankan. Direktori home tersebut
-dipakai sebagai `PI_CODING_AGENT_DIR`, dan sesi disimpan lewat `--session-dir`.
+Copying uses `COPYFILE_EXCL`, so existing files are never replaced when a new version runs. An
+existing `settings.json` gains any new default keys, and values you already have stay as they are.
+The home directory is used as `PI_CODING_AGENT_DIR`, and sessions are stored through `--session-dir`.
 
-`settings.json` yang sudah ada mendapat kunci default baru saat launcher berjalan; nilai
-yang sudah Anda punya tidak diubah.
+The default screen mode is `regular`, so your terminal handles scrolling. pi's `fullscreen` mode
+uses the alternate screen, and on Windows the console host can drop its mouse tracking request, which
+turns the wheel into arrow keys. Thinking blocks start collapsed: `ctrl+t` expands them and `ctrl+o`
+expands tool output.
 
-Mode layar defaultnya `regular`, jadi scroll ditangani terminal. Mode `fullscreen` milik pi
-memakai alternate screen, dan di Windows permintaan mouse tracking-nya bisa hilang di
-console host sehingga roda mouse berubah menjadi tombol panah. Blok thinking tertutup secara
-default; `ctrl+t` membukanya dan `ctrl+o` membuka output tool.
-
-Provider dan model default dari `config/models.json` + `config/settings.default.json`:
+The default provider and model come from `config/models.json` and `config/settings.default.json`:
 provider `nusagate`, `"baseUrl": "https://api.nusagate.com/v1"`, `"api": "openai-completions"`,
 `"apiKey": "$NUSAGATE_API_KEY"`, model `deepseek-v4.1-flash` (contextWindow 1048576, maxTokens 16384).
 
-Daftar `/model` diambil dari katalog NusaGate dan disimpan di `nusagate-models.json`, jadi model
-yang dipilih tetap dikenali saat startup sebelum jaringan selesai. Katalog tidak memuat kapabilitas,
-jadi semua model memakai batas yang sama dengan `models.json`: input teks dan tanpa parameter thinking.
+The `/model` list comes from NusaGate's catalog and is cached in `nusagate-models.json`, so a saved
+model still resolves at startup before the network finishes. The catalog has no capability fields,
+so every model uses the same limits as `models.json`: text input and no thinking parameter.
 
-URL katalog harga bisa diganti lewat `NUSAGATE_MODELS_URL`; meter membacanya saat
-`session_start` dan memakai `https://api.nusagate.com/api/public/models` bila tidak diset.
+`NUSAGATE_MODELS_URL` overrides the catalog URL; the meter reads it at session start and defaults
+to `https://api.nusagate.com/api/public/models`.
 
-## Perintah
+## Commands
 
-| Perintah | Deskripsi |
+| Command | Description |
 | --- | --- |
-| `/usage` | Tampilkan meter biaya sesi (rupiah, token, penghematan) |
-| `/topup` | Tampilkan saldo dan link top up saldo NusaGate |
-| `/skills` | Lihat skill yang dipelajari otomatis; `/skills hapus <nama>` menghapusnya |
+| `/usage` | Show the session cost meter (rupiah, tokens, savings, speed) |
+| `/topup` | Show your balance and a NusaGate top-up link |
+| `/skills` | List automatically learned skills; `/skills delete <name>` deletes one |
+| `/setup` | Run first-time setup again |
+| `/import-config` | Import skills and instructions from other coding agents |
 
-## Subagent `task`
+## The `task` subagent
 
-Tool `task` mendelegasikan satu tugas mandiri ke proses `pi` terpisah dengan context
-window sendiri, dijalankan di cwd yang sama. Anak tidak melihat percakapan induk, jadi
-seluruh fakta yang dibutuhkan harus ada di dalam prompt.
+The `task` tool delegates one self-contained job to a separate `pi` process with its own context
+window, in the same working directory. The child can't see the parent's conversation, so the prompt
+must contain every fact it needs.
 
-Agent yang tersedia, masing-masing dengan model dan daftar tool di frontmatter-nya:
-`explorer` (default), `researcher`, `reviewer`, `test-runner`, `writer`.
+Available agents, each with a model and tool list in its frontmatter: `explorer` (default),
+`researcher`, `reviewer`, `test-runner`, `writer`.
 
-Anak dijalankan dengan `--no-session` dan `--tools` berisi allowlist dari definisi
-agent, jadi rekursi tertutup secara struktural: allowlist tidak pernah memuat `task`,
-paket ekstensi tidak dimuat (`--no-extensions`), dan environment anak membawa
-`NUSACODE_SUBAGENT=1`. Paling banyak empat anak berjalan bersamaan; sisanya menunggu.
-Batas waktu per anak `600_000` ms, bisa diubah lewat `NUSACODE_SUBAGENT_TIMEOUT_MS`.
+Children run with `--no-session` and a `--tools` allowlist from the agent definition, so recursion is
+closed structurally: the allowlist never contains `task`, the extension pack isn't loaded
+(`--no-extensions`), and the child's environment carries `NUSACODE_SUBAGENT=1`. At most four children
+run at once; the rest wait. Each child times out after `600_000` ms, which
+`NUSACODE_SUBAGENT_TIMEOUT_MS` overrides.
 
-## Meter biaya
+## Cost meter
 
-Token diambil dari `usage` pada respons provider; harga rupiah diambil sekali per sesi
-dari katalog publik NusaGate. Tiap respons dihitung dengan rumus penagihan gateway:
-tarif input + tarif output + cache-hit (persentase dari tarif input), dijumlahkan lalu
-dibulatkan ke atas per request (`Math.ceil`). Tidak ada harga yang di-hardcode.
+Tokens come from `usage` in the provider response; rupiah prices are fetched once per session from
+NusaGate's public catalog. Each response uses the gateway's billing formula: input rate + output rate
++ cache hits (a percentage of the input rate), summed and rounded up per request (`Math.ceil`). No
+price is hardcoded.
 
-Saldo diambil dari `GET https://api.nusagate.com/v1/balance` dengan API key yang sama
-saat `session_start` dan di setiap `/usage` atau `/topup`. URL-nya bisa diganti lewat
-`NUSAGATE_BALANCE_URL`. Bila akun punya pass bulanan, sisa kuotanya ikut ditampilkan,
-dan link top up muncul otomatis di laporan ketika saldo di bawah Rp 5.000.
+Balance comes from `GET https://api.nusagate.com/v1/balance` with the same API key, at session start
+and on each `/usage` or `/topup`. `NUSAGATE_BALANCE_URL` overrides the URL. If the account has a monthly
+pass, its remaining quota is shown too, and the top-up link appears in the report when the balance is
+under Rp 5.000.
 
-Laporan lengkap hanya muncul lewat `/usage`; ringkasannya selalu ada di status bar.
-Kecepatan (tok/s) dihitung dari token output dibagi waktu sejak chunk pertama sampai
-respons selesai, jadi waktu tunggu sebelum model mulai menjawab tidak ikut terhitung.
+The full report only appears through `/usage`; the status bar always shows a summary. Speed (tok/s) is
+output tokens divided by the time from the first streamed chunk to the end of the response, so waiting
+for the model to start doesn't count.
 
-## Belajar otomatis
+## Automatic learning
 
-Setelah pekerjaan yang cukup besar (minimal 8 tool call, atau 4 bila sempat ada error
-yang berhasil diatasi), proses latar belakang membaca transkrip dan memutuskan apakah
-ada prosedur yang layak disimpan. Bila ada, skill ditulis ke
-`~/.nusacode/skills/learned-<nama>/SKILL.md` dan berlaku mulai sesi berikutnya; memuatnya
-di tengah sesi akan membatalkan cache prompt provider. Skill yang sudah ada ikut diperbaiki
-bila sesi membuktikan isinya salah atau kurang.
+After substantial work (at least 8 tool calls, or 4 if it recovered from an error), a background process
+reads the transcript and decides whether there's a procedure worth keeping. If so, it writes a skill to
+`~/.nusacode/skills/learned-<name>/SKILL.md`, which applies from the next session; loading it mid-session
+would throw away the provider's prompt cache. Existing learned skills are improved when a session proves
+them wrong or incomplete.
 
-- **Biaya:** tiap review adalah satu panggilan model berbayar, paling banyak tiga per sesi,
-  dan biayanya masuk ke meter.
-- **Keamanan:** proses review tidak punya tool, jadi teks di dalam transkrip tidak bisa
-  membuatnya bertindak. Secret disamarkan sebelum dikirim ke model, dan skill yang masih
-  terlihat memuat secret ditolak. Hanya skill berawalan `learned-` yang bisa disentuh.
-- **Batasan:** skill yang tersimpan dimuat di sesi-sesi berikutnya, dan penyaringan ini tidak
-  menjamin isinya bersih dari instruksi berbahaya. Periksa lewat `/skills`.
+- **Cost:** each review is a paid model call, at most three per session, and its cost reaches the meter.
+- **Security:** the review process has no tools, so text in a transcript can't make it act. Secrets are
+  masked before reaching the model, and a skill that still looks like it holds one is refused. Only skills
+  prefixed `learned-` can be touched.
+- **Limits:** saved skills load in later sessions, and these checks can't guarantee a skill is free of
+  harmful instructions. Review them with `/skills`.
 
-`NUSACODE_NO_LEARN=1` mematikan fitur ini.
+`NUSACODE_NO_LEARN=1` turns this off.
 
 ## Token saver
 
-Tiga tuas, dari yang termurah:
+Three levers, cheapest first:
 
-1. **Penjaga cache prefix** — sidik jari system prompt + daftar tool dihitung pada
-   setiap request. Perubahan di tengah sesi membatalkan cache prefix provider; meter
-   memberi peringatan sekali, tanpa memblokir dan tanpa mengubah payload.
-2. **Pemotongan output tool** — hasil `read` dan `bash` dibatasi 200 baris; pi sendiri
-   sudah membatasi 2000 baris / 50KB, jadi ini memperketat batas yang ada. `read`
-   melanjutkan lewat `offset`, `bash` menyimpan ekor (ringkasan + pointer output).
-3. **Routing thinking** — level diambil dari settings (`modelThinkingLevels` per model,
-   lalu `defaultThinkingLevel`) dan turun ke `minimal` untuk prompt mekanis singkat
-   selama sesi belum punya tool yang gagal. Pilihan `/think` eksplisit menang.
+1. **Cache prefix guard:** a fingerprint of the system prompt and tool list is computed on every request.
+   A mid-session change invalidates the provider's cached prefix, so the meter warns once, without blocking
+   or changing the payload.
+2. **Tool output truncation:** `read` and `bash` results are capped at 200 lines. pi already caps them at
+   2000 lines / 50KB, so this tightens the existing limit. `read` continues through `offset`, and `bash`
+   keeps the tail (a summary plus an output pointer).
+3. **Thinking routing:** the level comes from settings (`modelThinkingLevels` per model, then
+   `defaultThinkingLevel`) and drops to `minimal` for short mechanical prompts while the session has no
+   failed tool. An explicit `/think` choice wins.
 
-`NUSACODE_NO_TOKEN_SAVER=1` mematikan ketiganya (dipakai sebagai saklar A/B).
-`NUSACODE_TRUNCATE_LINES=0` mematikan pemotongan; nilai lain mengganti batas baris.
+`NUSACODE_NO_TOKEN_SAVER=1` turns all three off (used as an A/B switch). `NUSACODE_TRUNCATE_LINES=0` turns off
+truncation; other values change the line limit.
 
-Angka terukur pada `nusagate/deepseek-v4.1-flash` (M3, 2026-10-26) seperti tercatat di
-header `token-saver.ts`: batas 200 baris menghasilkan 100.5k vs 97.9k token pada sesi
-yang sama (+2.7%), biaya tetap Rp 22; batas 50 baris menghemat 15.4% token tetapi
-menyembunyikan output yang seharusnya terlihat.
+Measured on `nusagate/deepseek-v4.1-flash` (M3, 2026-10-26), as recorded in the header of `token-saver.ts`:
+the 200-line limit gave 100.5k vs 97.9k tokens on the same session (+2.7%), at the same cost of Rp 22; a
+50-line limit saved 15.4% of tokens but hid output that should have been visible.
 
-## Tes
+## Tests
 
-Test dijalankan dengan `npm test`. Semuanya memakai `node:test` dan `node:assert/strict`,
-tanpa framework dan tanpa dependensi tambahan, dan berada di `pack/test/`.
+Run tests with `npm test`. They use `node:test` and `node:assert/strict`, with no framework or extra
+dependencies, and live in `pack/test/`.
 
-- `brand.test.ts` — tata letak layar startup, lebar sempit, dan frame animasi halo.
-- `learn.test.ts` — kapan review berjalan, penyamaran secret, validasi nama dan isi skill.
-- `models.test.ts` — katalog menjadi daftar model, cache startup, dan katalog yang rusak.
-- `meter.test.ts` — aritmetika rupiah meter: pembulatan ke atas per request, harga cache
-  dan fallback-nya, model tanpa harga, serta fetch harga yang gagal.
-- `token-saver.test.ts` — pemotongan output dan pointer `offset`, serta peringatan cache
-  prefix.
-- `subagents.test.ts` — registrasi tool `task`, skema typebox, penjaga rekursi, dan
-  parsing frontmatter.
+- `brand.test.ts`: startup screen layout, narrow widths, halo frames, status bar, and tool activity text.
+- `learn.test.ts`: when a review runs, secret masking, and skill name and body validation.
+- `models.test.ts`: catalog to model list, the startup cache, and a corrupt catalog.
+- `meter.test.ts`: rupiah arithmetic (rounding up per request, cache pricing and its fallback, models with
+  no price, failed price fetches), speed, and the startup summary.
+- `setup.test.ts`: finding and importing skills, what import refuses, and storing the API key.
+- `token-saver.test.ts`: output truncation and the `offset` pointer, and the cache prefix warning.
+- `subagents.test.ts`: `task` tool registration, the typebox schema, the recursion guard, and frontmatter
+  parsing.
 
-Ekstensi dijalankan lewat objek `pi` palsu dan `fetch` yang di-stub, jadi test tidak
-butuh jaringan maupun API key.
+Extensions run against a fake `pi` object and a stubbed `fetch`, so tests need no network or API key.
 
-## Struktur repo
+## Repo layout
 
 ```text
-bin/nusacode.js              launcher: seed konfigurasi, lalu jalankan pi
-config/settings.default.json provider dan model default
-config/models.json           definisi provider nusagate
-config/agents/*.md           lima definisi agent untuk tool task
-pack/extensions/meter.ts     meter biaya rupiah + perintah /usage dan /topup
-pack/extensions/brand.ts     layar startup (logo N dengan halo beranimasi, tips, pemakaian, sesi terakhir)
-pack/themes/*.json           tema nusagate-dark dan nusagate-light (warna nusagate.com)
-pack/extensions/token-saver.ts  cache guard, pemotongan output, routing thinking
-pack/extensions/subagents.ts tool task dan protokol usage anak
-pack/extensions/models.ts    daftar model /model dari katalog NusaGate
-pack/extensions/learn.ts     skill otomatis dari pekerjaan yang selesai + perintah /skills
+bin/nusacode.js              launcher: seeds config, then runs pi
+config/settings.default.json default provider, model and UI settings
+config/models.json           nusagate provider definition
+config/agents/*.md           five agent definitions for the task tool
+pack/extensions/brand.ts     startup screen, status bar, and tool activity text
+pack/extensions/meter.ts     rupiah cost meter, /usage and /topup
+pack/extensions/models.ts    /model list from NusaGate's catalog
+pack/extensions/setup.ts     first-time setup, /setup and /import-config
+pack/extensions/learn.ts     automatic skills from finished work, and /skills
+pack/extensions/token-saver.ts  cache guard, output truncation, thinking routing
+pack/extensions/subagents.ts task tool and the child usage protocol
+pack/themes/*.json           nusagate-dark and nusagate-light themes (nusagate.com's colors)
 ```
 
-`pack/` adalah workspace npm (`@nusacode/pack`), diekspos sebagai pi-package lewat `pi.extensions: ["./extensions"]`.
+`pack/` is an npm workspace (`@nusacode/pack`), exposed as a pi-package through
+`pi.extensions: ["./extensions"]`.
 
-## Lisensi
+## License
 
-MIT. Lihat `LICENSE`. NusaCode memakai `pi` (MIT, earendil-works) sebagai dependensi
-runtime tanpa modifikasi; atribusinya ada di `NOTICE`, dan proyek ini bukan produk
-yang disponsori atau didukung oleh maintainer pi.
+MIT. See `LICENSE`. NusaCode uses `pi` (MIT, earendil-works) as an unmodified runtime dependency;
+its attribution is in `NOTICE`. This project is not sponsored or endorsed by pi's maintainers.

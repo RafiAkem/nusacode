@@ -83,17 +83,17 @@ const MIN_RIGHT_COLUMN = 20;
 /** Fixed row counts, so async data arriving never changes the box height. */
 const USAGE_SLOTS = 4;
 const SESSION_SLOTS = 4;
-const GREETING = "Selamat datang!";
+const GREETING = "Welcome!";
 /** Document row of the logo's first line: pi's spacer, top border, greeting and blanks. */
 const LOGO_TOP_ROW = 5;
 const MAX_ACTIVITY_WIDTH = 60;
 
 const TIPS = [
-  "/usage menampilkan biaya sesi, token, dan saldo.",
-  "/topup menampilkan saldo dan link top up NusaGate.",
-  "/resume melanjutkan sesi sebelumnya.",
-  "Minta agent memakai tool task untuk mendelegasikan tugas ke subagent.",
-  "Awali dengan !! untuk menjalankan bash tanpa mengirim hasilnya ke model.",
+  "/usage shows session cost, tokens and balance.",
+  "/topup shows your balance and a NusaGate top-up link.",
+  "/resume continues an earlier session.",
+  "Ask the agent to use the task tool to hand work to a subagent.",
+  "Start with !! to run bash without sending the output to the model.",
 ];
 
 function readVersion(): string {
@@ -144,17 +144,17 @@ export function logoFrame(mode: ColorMode, phase: number | null = null): string[
 
 export function timeAgo(then: Date, now: Date): string {
   const minutes = Math.floor((now.getTime() - then.getTime()) / 60_000);
-  if (minutes < 1) return "baru saja";
-  if (minutes < 60) return `${minutes} mnt lalu`;
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} jam lalu`;
-  return `${Math.floor(hours / 24)} hari lalu`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 /** One line for a session: its name, else its first prompt. */
 export function sessionLabel(session: Pick<SessionInfo, "name" | "firstMessage" | "messageCount">): string {
   if (session.name) return session.name;
-  return session.messageCount > 0 ? session.firstMessage.replace(/\s+/g, " ").trim() : "Tanpa judul";
+  return session.messageCount > 0 ? session.firstMessage.replace(/\s+/g, " ").trim() : "Untitled";
 }
 
 export type WelcomeView = {
@@ -194,11 +194,11 @@ function rightColumn(view: WelcomeView, width: number, theme: Theme): string[] {
     heading("Tips"),
     ...view.tips.map(([key, text]) => ` ${theme.fg("dim", key)}${theme.fg("muted", ` ${text}`)}`),
     separator,
-    heading("Pemakaian"),
-    ...slots(usage.length > 0 ? usage : [` ${theme.fg("dim", "memuat...")}`], USAGE_SLOTS),
+    heading("Usage"),
+    ...slots(usage.length > 0 ? usage : [` ${theme.fg("dim", "loading...")}`], USAGE_SLOTS),
     separator,
-    heading("Sesi terakhir"),
-    ...slots(sessions.length > 0 ? sessions : [` ${theme.fg("dim", "Belum ada sesi")}`], SESSION_SLOTS),
+    heading("Recent sessions"),
+    ...slots(sessions.length > 0 ? sessions : [` ${theme.fg("dim", "No recent sessions")}`], SESSION_SLOTS),
   ];
 }
 
@@ -366,6 +366,11 @@ export function statusBarLines(view: StatusBarView, width: number, theme: Theme)
   return [truncateToWidth(left, width, "…"), truncateToWidth(right, width, "…")];
 }
 
+/** pi uses a placeholder model named "unknown" when no provider has a key. */
+export function modelLabel(model: { id: string; name?: string } | undefined): string {
+  return !model || model.id === "unknown" ? "No model" : (model.name ?? model.id);
+}
+
 function mountStatusBar(pi: ExtensionAPI, ctx: ExtensionContext): void {
   // getContextUsage scans the session and the footer renders every frame.
   // Every append moves the leaf, so it only changes with the leaf or the model.
@@ -379,7 +384,7 @@ function mountStatusBar(pi: ExtensionAPI, ctx: ExtensionContext): void {
     render: (width) =>
       statusBarLines(
         {
-          model: ctx.model?.name ?? "Belum ada model",
+          model: modelLabel(ctx.model),
           thinking: ctx.model?.reasoning ? pi.getThinkingLevel() : undefined,
           folder: basename(ctx.cwd),
           sessionName: ctx.sessionManager.getSessionName(),
@@ -397,33 +402,33 @@ function mountStatusBar(pi: ExtensionAPI, ctx: ExtensionContext): void {
   }));
 }
 
-/** What the spinner says while a tool runs, e.g. "Membaca README.md". */
+/** What the spinner says while a tool runs, e.g. "Reading README.md". */
 export function describeTool(name: string, args: unknown): string {
   const input = (typeof args === "object" && args !== null ? args : {}) as Record<string, unknown>;
   const text = (key: string) => (typeof input[key] === "string" ? (input[key] as string).replace(/\s+/g, " ").trim() : "");
   const full = text("path") || text("command") || text("pattern") || text("prompt");
   const target = full.length > MAX_ACTIVITY_WIDTH ? `${full.slice(0, MAX_ACTIVITY_WIDTH)}…` : full;
   const verbs: Record<string, string> = {
-    read: "Membaca",
-    write: "Menulis",
-    edit: "Mengedit",
-    bash: "Menjalankan",
-    powershell: "Menjalankan",
-    grep: "Mencari",
-    find: "Mencari",
-    ls: "Melihat",
-    task: "Mendelegasikan",
+    read: "Reading",
+    write: "Writing",
+    edit: "Editing",
+    bash: "Running",
+    powershell: "Running",
+    grep: "Searching for",
+    find: "Finding",
+    ls: "Listing",
+    task: "Delegating",
   };
-  const verb = verbs[name.toLowerCase()] ?? `Memakai ${name}`;
+  const verb = verbs[name.toLowerCase()] ?? `Using ${name}`;
   return target ? `${verb} ${target}` : verb;
 }
 
 function keyTips(): [string, string][] {
   return [
-    ["/", "untuk perintah · ! untuk bash"],
-    [keyText("app.model.select"), "untuk ganti model"],
-    [`${keyText("app.thinking.toggle")} · ${keyText("app.tools.expand")}`, "buka pikiran · output tool"],
-    [`${keyText("app.interrupt")} · ${keyText("app.exit")}`, "untuk hentikan · keluar"],
+    ["/", "for commands · ! for bash"],
+    [keyText("app.model.select"), "to switch model"],
+    [`${keyText("app.thinking.toggle")} · ${keyText("app.tools.expand")}`, "show thinking · tool output"],
+    [`${keyText("app.interrupt")} · ${keyText("app.exit")}`, "to interrupt · exit"],
   ];
 }
 
@@ -450,10 +455,10 @@ export default function brand(pi: ExtensionAPI) {
   pi.on("session_start", (event, ctx) => {
     if (ctx.mode !== "tui") return;
     mountStatusBar(pi, ctx);
-    ctx.ui.setHiddenThinkingLabel(`Berpikir (${keyText("app.thinking.toggle")} untuk membuka)`);
+    ctx.ui.setHiddenThinkingLabel(`Thinking (${keyText("app.thinking.toggle")} to expand)`);
     const view: WelcomeView = {
       version: readVersion(),
-      model: ctx.model?.name ?? "Belum ada model",
+      model: modelLabel(ctx.model),
       provider: ctx.model?.provider ?? "",
       tips: keyTips(),
       usage,

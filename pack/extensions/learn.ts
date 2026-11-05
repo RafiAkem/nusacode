@@ -213,20 +213,20 @@ function refused(reason: string): Outcome {
 export function applyDecision(dir: string, decision: Decision, updatable: readonly string[], secrets?: string[]): Outcome {
   if (decision.action === "none") return { kind: "none" };
   const name = learnedName(decision.name);
-  if (!name) return refused(`nama tidak valid: ${decision.name}`);
+  if (!name) return refused(`invalid name: ${decision.name}`);
   const description = decision.description.replace(/\s+/g, " ").trim();
   const body = decision.body.trim();
-  if (!description || description.length > MAX_DESCRIPTION_CHARS) return refused("deskripsi tidak valid");
-  if (!body || body.length > MAX_BODY_CHARS) return refused("isi skill kosong atau terlalu panjang");
+  if (!description || description.length > MAX_DESCRIPTION_CHARS) return refused("invalid description");
+  if (!body || body.length > MAX_BODY_CHARS) return refused("skill body is empty or too long");
   const combined = `${description}\n${body}`;
   if (combined.includes(REDACTED) || scrubSecrets(combined, secrets) !== combined) {
-    return refused("isi skill terlihat memuat secret");
+    return refused("skill looks like it contains a secret");
   }
 
   const skillDir = join(dir, name);
   const exists = existsSync(join(skillDir, "SKILL.md"));
-  if (decision.action === "create" && exists) return refused(`skill sudah ada: ${name}`);
-  if (decision.action === "update" && !updatable.includes(name)) return refused(`tidak boleh diperbarui: ${name}`);
+  if (decision.action === "create" && exists) return refused(`skill already exists: ${name}`);
+  if (decision.action === "update" && !updatable.includes(name)) return refused(`not allowed to update: ${name}`);
 
   mkdirSync(skillDir, { recursive: true });
   const target = join(skillDir, "SKILL.md");
@@ -295,20 +295,20 @@ export default function learn(pi: ExtensionAPI) {
       },
     );
     if (!result.ok) {
-      lastProblem = result.error ?? "review gagal";
+      lastProblem = result.error ?? "review failed";
       return;
     }
     const decision = parseDecision(result.text);
     if (!decision) {
-      lastProblem = "jawaban review tidak bisa dibaca";
+      lastProblem = "could not read the review's answer";
       return;
     }
     const outcome = applyDecision(dir, decision, updatable);
-    if (outcome.kind === "refused") lastProblem = `skill ditolak: ${outcome.reason}`;
+    if (outcome.kind === "refused") lastProblem = `skill refused: ${outcome.reason}`;
     if (outcome.kind === "created" || outcome.kind === "updated") {
       lastProblem = null;
-      const verb = outcome.kind === "created" ? "Skill baru dipelajari" : "Skill diperbarui";
-      ctx.ui.notify(`${verb}: ${outcome.name}. Berlaku mulai sesi berikutnya. Lihat /skills.`, "info");
+      const verb = outcome.kind === "created" ? "Learned a new skill" : "Updated a skill";
+      ctx.ui.notify(`${verb}: ${outcome.name}. It applies from your next session. See /skills.`, "info");
     }
   }
 
@@ -325,7 +325,7 @@ export default function learn(pi: ExtensionAPI) {
     if (ctx.mode !== "tui" || reviewing || reviews >= MAX_REVIEWS_PER_SESSION || !shouldReview(event.messages)) return;
     reviews += 1;
     reviewing = true;
-    ctx.ui.setStatus(STATUS_KEY, "belajar...");
+    ctx.ui.setStatus(STATUS_KEY, "learning...");
     // Not awaited: the user keeps working while this runs.
     void review(event.messages, ctx)
       .catch((err: unknown) => {
@@ -341,28 +341,28 @@ export default function learn(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("skills", {
-    description: "Lihat atau hapus skill yang dipelajari otomatis (/skills hapus <nama>)",
+    description: "List or delete automatically learned skills (/skills delete <name>)",
     handler: async (args, ctx) => {
       const dir = skillsDir();
       const [verb, target] = args.trim().split(/\s+/);
-      if (verb === "hapus") {
+      if (verb === "delete") {
         // learnedName() limits this to a valid name under the learned- prefix.
         const name = target ? learnedName(target) : null;
         if (!name || !existsSync(join(dir, name))) {
-          ctx.ui.notify(`Skill tidak ditemukan: ${target ?? "(nama kosong)"}`, "warning");
+          ctx.ui.notify(`Skill not found: ${target ?? "(no name given)"}`, "warning");
           return;
         }
-        if (!(await ctx.ui.confirm("Hapus skill?", name))) return;
+        if (!(await ctx.ui.confirm("Delete this skill?", name))) return;
         rmSync(join(dir, name), { recursive: true, force: true });
-        ctx.ui.notify(`Skill dihapus: ${name}. Berlaku mulai sesi berikutnya.`, "info");
+        ctx.ui.notify(`Deleted ${name}. This applies from your next session.`, "info");
         return;
       }
       const learned = listLearned(dir);
       const lines =
         learned.length > 0
-          ? ["Skill yang dipelajari otomatis:", ...learned.map((skill) => `  ${skill.name}\n    ${skill.description}`), `Lokasi: ${dir}`, "Hapus: /skills hapus <nama>"]
-          : ["Belum ada skill yang dipelajari."];
-      if (lastProblem) lines.push(`Review terakhir: ${lastProblem}`);
+          ? ["Automatically learned skills:", ...learned.map((skill) => `  ${skill.name}\n    ${skill.description}`), `Location: ${dir}`, "Delete: /skills delete <name>"]
+          : ["No skills learned yet."];
+      if (lastProblem) lines.push(`Last review: ${lastProblem}`);
       ctx.ui.notify(lines.join("\n"), "info");
     },
   });

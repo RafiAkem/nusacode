@@ -1,7 +1,7 @@
 {
   "name": "@nusacode/cli",
   "version": "0.1.0",
-  "description": "Coding agent CLI untuk NusaGate, dibangun di atas pi (MIT).",
+  "description": "Coding agent CLI for NusaGate, built on pi (MIT).",
   "license": "MIT",
   "bin": {
     "nusacode": "bin/nusacode.js"

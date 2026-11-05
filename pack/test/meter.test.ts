@@ -6,8 +6,8 @@ import meter, { SUMMARY_CHANNEL, type SummaryRow } from "../extensions/meter.ts"
 
 const DEFAULT_MODELS_URL = "https://api.nusagate.com/api/public/models";
 /** The wallet row, normalized like costLine so column padding does not matter. */
-const saldoLine = (report: string) =>
-  (report.split("\n").find((line) => line.startsWith("Saldo ")) as string).replace(/^Saldo\s+/, "Saldo ");
+const balanceLine = (report: string) =>
+  (report.split("\n").find((line) => line.startsWith("Balance ")) as string).replace(/^Balance\s+/, "Balance ");
 
 type Usage = { input: number; cacheRead?: number; cacheWrite?: number; output: number };
 type Ctx = {
@@ -107,7 +107,7 @@ function stubFetch(
 
 /** The cost row, normalized so tests assert amounts rather than column padding. */
 const costLine = (report: string) =>
-  (report.split("\n").find((line) => line.startsWith("Biaya sesi ")) as string).replace(/^Biaya sesi\s+/, "Biaya sesi ");
+  (report.split("\n").find((line) => line.startsWith("Session cost ")) as string).replace(/^Session cost\s+/, "Session cost ");
 
 /** Restores globalThis.fetch after each test. */
 function restoreFetch(t: { after: (fn: () => void) => void }) {
@@ -135,12 +135,12 @@ test("bills with the gateway formula: cacheWrite as fresh input, cacheRead at th
     [
       "NusaCode · nusagate/test-model",
       "─".repeat(32),
-      "Request     1 request",
-      "Token       375.0k · input 150.0k · cache 200.0k · output 25.0k",
-      "Cache hit   █████████░░░░░░░ 57.1%",
-      "Biaya sesi  Rp 660",
-      `Harga: ${DEFAULT_MODELS_URL} (fetch sekali saat session_start)`,
-      "Saldo       Rp 250.000",
+      "Requests      1",
+      "Tokens        375.0k · input 150.0k · cache 200.0k · output 25.0k",
+      "Cache hit     █████████░░░░░░░ 57.1%",
+      "Session cost  Rp 660",
+      `Prices: ${DEFAULT_MODELS_URL} (fetched once at session start)`,
+      "Balance       Rp 250.000",
     ].join("\n"),
   );
 });
@@ -156,12 +156,12 @@ test("rounds each request up separately instead of rounding the aggregate", asyn
   h.respond("cheap", { input: 100_000, output: 0 });
   h.respond("cheap", { input: 100_000, output: 0 });
 
-  assert.equal(costLine(await h.report()), "Biaya sesi Rp 2");
+  assert.equal(costLine(await h.report()), "Session cost Rp 2");
 
   // A single 1.2 rupiah response must bill Rp 2, not Rp 1.
   await h.start();
   h.respond("cheap", { input: 600_000, output: 0 });
-  assert.equal(costLine(await h.report()), "Biaya sesi Rp 2");
+  assert.equal(costLine(await h.report()), "Session cost Rp 2");
 });
 
 test("derives the cache percentage from cachePricePer1M when cachePricePercent is absent", async (t) => {
@@ -173,7 +173,7 @@ test("derives the cache percentage from cachePricePer1M when cachePricePercent i
   // 1M cached tokens at 100/1M = 10% of the 1000/1M input price -> Rp 100.
   h.respond("derived", { input: 0, cacheRead: 1_000_000, output: 0 });
 
-  assert.equal(costLine(await h.report()), "Biaya sesi Rp 100");
+  assert.equal(costLine(await h.report()), "Session cost Rp 100");
 });
 
 test("bills cached tokens at the full input price when the catalog has no cache price", async (t) => {
@@ -184,7 +184,7 @@ test("bills cached tokens at the full input price when the catalog has no cache 
 
   h.respond("nocache", { input: 0, cacheRead: 1_000_000, output: 0 });
 
-  assert.equal(costLine(await h.report()), "Biaya sesi Rp 1.000");
+  assert.equal(costLine(await h.report()), "Session cost Rp 1.000");
 });
 
 test("flags an unpriced model as a lower bound instead of billing it at zero", async (t) => {
@@ -197,8 +197,8 @@ test("flags an unpriced model as a lower bound instead of billing it at zero", a
   h.respond("ghost-model", { input: 1_000, output: 0 });
 
   const report = await h.report();
-  assert.equal(costLine(report), "Biaya sesi Rp 660");
-  assert.match(report, /^1 respons tanpa harga \(model tidak ada di katalog\)$/m);
+  assert.equal(costLine(report), "Session cost Rp 660");
+  assert.match(report, /^1 response\(s\) without a price \(model not in catalog\)$/m);
   assert.equal(h.statuses.at(-1), "nusa · ≥ Rp 660 · 376.0k tok");
 });
 
@@ -208,14 +208,14 @@ test("survives a non-ok price catalog and reports price unavailable", async (t) 
   const h = harness();
 
   await h.start(); // must not throw
-  assert.equal(h.statuses.at(-1), "nusa · harga tidak tersedia");
-  assert.match(await h.report(), /^Biaya tidak tersedia \(fetch harga gagal: HTTP 503\)$/m);
+  assert.equal(h.statuses.at(-1), "nusa · prices unavailable");
+  assert.match(await h.report(), /^Cost unavailable \(price fetch failed: HTTP 503\)$/m);
 
   // A later session_start with a good catalog bills again.
   stubFetch(catalog(priceRow("test-model", { inputPer1M: 3000, outputPer1M: 6000, cachePricePercent: 10 })));
   await h.start();
   h.respond("test-model", { input: 100_000, cacheRead: 200_000, cacheWrite: 50_000, output: 25_000 });
-  assert.equal(costLine(await h.report()), "Biaya sesi Rp 660");
+  assert.equal(costLine(await h.report()), "Session cost Rp 660");
 });
 
 test("survives a catalog with no usable price rows", async (t) => {
@@ -224,7 +224,7 @@ test("survives a catalog with no usable price rows", async (t) => {
   const h = harness();
 
   await h.start(); // must not throw
-  assert.match(await h.report(), /^Biaya tidak tersedia \(fetch harga gagal: no model prices in response\)$/m);
+  assert.match(await h.report(), /^Cost unavailable \(price fetch failed: no model prices in response\)$/m);
 });
 
 test("fetches NUSAGATE_MODELS_URL when it is set", async (t) => {
@@ -242,7 +242,7 @@ test("fetches NUSAGATE_MODELS_URL when it is set", async (t) => {
 
   assert.equal(calls[0], "https://prices.test/models");
   h.respond("test-model", { input: 1_000_000, output: 0 });
-  assert.match(await h.report(), /^Harga: https:\/\/prices\.test\/models \(fetch sekali saat session_start\)$/m);
+  assert.match(await h.report(), /^Prices: https:\/\/prices\.test\/models \(fetched once at session start\)$/m);
 });
 
 test("reports an empty session without a request table", async (t) => {
@@ -251,7 +251,7 @@ test("reports an empty session without a request table", async (t) => {
   const h = harness();
   await h.start();
 
-  assert.deepEqual((await h.report()).split("\n").slice(2, 4), ["Belum ada pemakaian di sesi ini.", `Harga: ${DEFAULT_MODELS_URL} (fetch sekali saat session_start)`]);
+  assert.deepEqual((await h.report()).split("\n").slice(2, 4), ["No usage in this session yet.", `Prices: ${DEFAULT_MODELS_URL} (fetched once at session start)`]);
 });
 
 test("shows the wallet balance and the pass quota", async (t) => {
@@ -267,8 +267,8 @@ test("shows the wallet balance and the pass quota", async (t) => {
   await h.start();
 
   const report = await h.report();
-  assert.equal(saldoLine(report), "Saldo Rp 3.992.912");
-  assert.match(report, /^Pass\s+Rp 487\.758 sisa dari Rp 500\.000 · s\/d 2026-11-30$/m);
+  assert.equal(balanceLine(report), "Balance Rp 3.992.912");
+  assert.match(report, /^Pass\s+Rp 487\.758 left of Rp 500\.000 · until 2026-11-30$/m);
 });
 
 test("adds the topup link when the balance runs low", async (t) => {
@@ -277,7 +277,7 @@ test("adds the topup link when the balance runs low", async (t) => {
   const h = harness();
   await h.start();
 
-  assert.match(await h.report(), /^Saldo menipis · top up: https:\/\/nusagate\.com\/dashboard\/wallet\?src=cli&key=nsk_abcdefg$/m);
+  assert.match(await h.report(), /^Low balance · top up: https:\/\/nusagate\.com\/dashboard\/wallet\?src=cli&key=nsk_abcdefg$/m);
 });
 
 test("keeps billing when the balance endpoint fails", async (t) => {
@@ -289,8 +289,8 @@ test("keeps billing when the balance endpoint fails", async (t) => {
   h.respond("test-model", { input: 1_000_000, output: 0 });
 
   const report = await h.report();
-  assert.equal(costLine(report), "Biaya sesi Rp 3.000");
-  assert.equal(saldoLine(report), "Saldo tidak tersedia (HTTP 503)");
+  assert.equal(costLine(report), "Session cost Rp 3.000");
+  assert.equal(balanceLine(report), "Balance unavailable (HTTP 503)");
 });
 
 test("speed is timed from the first chunk and shown in the status and /usage", async (t) => {
@@ -314,7 +314,7 @@ test("speed is timed from the first chunk and shown in the status and /usage", a
 
   await reply(300, 0, 3_000);
   assert.match(h.statuses.at(-1) as string, / · 100 tok\/s$/);
-  assert.match(await h.report(), /^Kecepatan\s+100 tok\/s terakhir · rata-rata 80 tok\/s$/m);
+  assert.match(await h.report(), /^Speed\s+100 tok\/s last · 80 tok\/s average$/m);
 });
 
 test("a reply with no measurable streaming time reports no speed", async (t) => {
@@ -328,7 +328,7 @@ test("a reply with no measurable streaming time reports no speed", async (t) => 
   h.respond("test-model", { input: 10, output: 100 });
 
   assert.doesNotMatch(h.statuses.at(-1) as string, /tok\/s/);
-  assert.doesNotMatch(await h.report(), /Kecepatan/);
+  assert.doesNotMatch(await h.report(), /Speed/);
 });
 
 test("startup summary goes from loading to wallet and price rows", async (t) => {
@@ -347,14 +347,14 @@ test("startup summary goes from loading to wallet and price rows", async (t) => 
   await h.start();
 
   assert.deepEqual(h.summaries[0], [
-    { label: "Saldo", value: "memuat...", warn: false },
-    { label: "Harga", value: "memuat..." },
+    { label: "Balance", value: "loading...", warn: false },
+    { label: "Price", value: "loading..." },
   ]);
   assert.deepEqual(h.summaries.at(-1), [
-    { label: "Saldo", value: "Rp 250.000", warn: false },
-    { label: "Pass", value: "Rp 487.758 sisa dari Rp 500.000 · s/d 2026-11-30" },
-    { label: "Harga", value: "Rp 3.000 input · Rp 6.000 output /1M" },
-    { label: "Hemat", value: "75.0% dari harga resmi" },
+    { label: "Balance", value: "Rp 250.000", warn: false },
+    { label: "Pass", value: "Rp 487.758 left of Rp 500.000 · until 2026-11-30" },
+    { label: "Price", value: "Rp 3.000 input · Rp 6.000 output /1M" },
+    { label: "Saved", value: "75.0% vs list price" },
   ]);
 });
 
@@ -365,12 +365,12 @@ test("startup summary flags a low balance and a failed wallet fetch", async (t) 
   stubFetch(prices, { balance: { balance: 4_000 } });
   const low = harness();
   await low.start();
-  assert.deepEqual(low.summaries.at(-1)?.[0], { label: "Saldo", value: "Rp 4.000 · menipis, /topup", warn: true });
+  assert.deepEqual(low.summaries.at(-1)?.[0], { label: "Balance", value: "Rp 4.000 · low, /topup", warn: true });
 
   stubFetch(prices, { balanceStatus: 503 });
   const failed = harness();
   await failed.start();
-  assert.deepEqual(failed.summaries.at(-1)?.[0], { label: "Saldo", value: "tidak tersedia (HTTP 503)", warn: true });
+  assert.deepEqual(failed.summaries.at(-1)?.[0], { label: "Balance", value: "unavailable (HTTP 503)", warn: true });
 });
 
 test("/topup reports the balance next to the link", async (t) => {
@@ -383,6 +383,6 @@ test("/topup reports the balance next to the link", async (t) => {
 
   assert.equal(
     h.notifications.at(-1),
-    "Saldo: Rp 250.000\nTop up: https://nusagate.com/dashboard/wallet?src=cli&key=nsk_abcdefg",
+    "Balance: Rp 250.000\nTop up: https://nusagate.com/dashboard/wallet?src=cli&key=nsk_abcdefg",
   );
 });

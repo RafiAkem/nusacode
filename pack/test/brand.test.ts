@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import brand, {
   describeTool,
+  modelLabel,
   logoFrame,
   sessionLabel,
   statusBarLines,
@@ -26,9 +27,9 @@ const view: WelcomeView = {
   version: "1.2.3",
   model: "deepseek-v4.1-flash",
   provider: "nusagate",
-  tips: [["/", "untuk perintah"]],
-  usage: [{ label: "Saldo", value: "Rp 12.345" }],
-  sessions: [{ label: "perbaiki bug meter", ago: "3 mnt lalu" }],
+  tips: [["/", "for commands"]],
+  usage: [{ label: "Balance", value: "Rp 12.345" }],
+  sessions: [{ label: "fix the meter bug", ago: "3m ago" }],
   tip: "/usage menampilkan biaya",
 };
 
@@ -38,7 +39,7 @@ function render(overrides: Partial<WelcomeView> = {}, width = 120): string[] {
 
 test("box shows version, model, tips, usage, sessions and the tip line", () => {
   const text = render().join("\n");
-  for (const expected of ["NusaCode v1.2.3", "deepseek-v4.1-flash", "nusagate", "/ untuk perintah", "Pemakaian", "Saldo  Rp 12.345", "perbaiki bug meter (3 mnt lalu)", "Tip: /usage"]) {
+  for (const expected of ["NusaCode v1.2.3", "deepseek-v4.1-flash", "nusagate", "/ for commands", "Usage", "Balance  Rp 12.345", "fix the meter bug (3m ago)", "Tip: /usage"]) {
     assert.ok(text.includes(expected), `missing: ${expected}\n${text}`);
   }
 });
@@ -51,20 +52,20 @@ test("every box row is exactly the box width", () => {
 test("box height does not change when async data arrives", () => {
   const empty = render({ usage: [], sessions: [] });
   const full = render({
-    usage: ["Saldo", "Pass", "Harga", "Hemat"].map((label) => ({ label, value: "x" })),
-    sessions: Array.from({ length: 9 }, (_, i) => ({ label: `s${i}`, ago: "1 mnt lalu" })),
+    usage: ["Balance", "Pass", "Price", "Saved"].map((label) => ({ label, value: "x" })),
+    sessions: Array.from({ length: 9 }, (_, i) => ({ label: `s${i}`, ago: "1m ago" })),
   });
   assert.equal(empty.length, full.length);
 });
 
 test("a long session label is cut before its age", () => {
-  const line = render({ sessions: [{ label: "x".repeat(300), ago: "2 jam lalu" }] }).find((l) => l.includes("2 jam lalu"));
-  assert.ok(line?.includes("… (2 jam lalu)"), line);
+  const line = render({ sessions: [{ label: "x".repeat(300), ago: "2h ago" }] }).find((l) => l.includes("2h ago"));
+  assert.ok(line?.includes("… (2h ago)"), line);
 });
 
 test("narrow terminals drop the right column and stay in bounds", () => {
   const lines = render({}, 40);
-  assert.ok(!lines.join("\n").includes("Pemakaian"));
+  assert.ok(!lines.join("\n").includes("Usage"));
   for (const line of lines) assert.ok([...line].length <= 38, line);
 });
 
@@ -167,11 +168,11 @@ test("the first agent turn stops the halo", (t) => {
 
 test("usage rows apply until the first agent turn, then the box is frozen", () => {
   const m = mount(30);
-  m.onSummary({ rows: [{ label: "Saldo", value: "Rp 1" }] });
+  m.onSummary({ rows: [{ label: "Balance", value: "Rp 1" }] });
   assert.ok(m.text().includes("Rp 1"));
 
   m.handlers.agent_start({});
-  m.onSummary({ rows: [{ label: "Saldo", value: "Rp 2" }] });
+  m.onSummary({ rows: [{ label: "Balance", value: "Rp 2" }] });
   assert.ok(!m.text().includes("Rp 2"));
   assert.ok(m.text().includes("Rp 1"));
 });
@@ -210,26 +211,33 @@ test("status bar shows optional parts only when they apply", () => {
 });
 
 test("the spinner names what each tool is working on", () => {
-  assert.equal(describeTool("read", { path: "README.md" }), "Membaca README.md");
-  assert.equal(describeTool("bash", { command: "npm  test\n--watch" }), "Menjalankan npm test --watch");
-  assert.equal(describeTool("grep", { pattern: "foo" }), "Mencari foo");
-  assert.equal(describeTool("write", {}), "Menulis");
-  assert.equal(describeTool("web_fetch", { url: "x" }), "Memakai web_fetch");
-  assert.equal(describeTool("read", null), "Membaca");
+  assert.equal(describeTool("read", { path: "README.md" }), "Reading README.md");
+  assert.equal(describeTool("bash", { command: "npm  test\n--watch" }), "Running npm test --watch");
+  assert.equal(describeTool("grep", { pattern: "foo" }), "Searching for foo");
+  assert.equal(describeTool("write", {}), "Writing");
+  assert.equal(describeTool("web_fetch", { url: "x" }), "Using web_fetch");
+  assert.equal(describeTool("read", null), "Reading");
   assert.ok(describeTool("bash", { command: "x".repeat(500) }).length < 80);
+});
+
+test("the placeholder model reads as no model", () => {
+  assert.equal(modelLabel(undefined), "No model");
+  assert.equal(modelLabel({ id: "unknown", name: "unknown" }), "No model");
+  assert.equal(modelLabel({ id: "a", name: "Model A" }), "Model A");
+  assert.equal(modelLabel({ id: "a" }), "a");
 });
 
 test("timeAgo buckets", () => {
   const now = new Date("2026-11-05T12:00:00Z");
   const ago = (ms: number) => timeAgo(new Date(now.getTime() - ms), now);
-  assert.equal(ago(10_000), "baru saja");
-  assert.equal(ago(5 * 60_000), "5 mnt lalu");
-  assert.equal(ago(3 * 3_600_000), "3 jam lalu");
-  assert.equal(ago(2 * 86_400_000), "2 hari lalu");
+  assert.equal(ago(10_000), "just now");
+  assert.equal(ago(5 * 60_000), "5m ago");
+  assert.equal(ago(3 * 3_600_000), "3h ago");
+  assert.equal(ago(2 * 86_400_000), "2d ago");
 });
 
 test("sessionLabel prefers the name, then flattens the first prompt", () => {
   assert.equal(sessionLabel({ name: "rilis", firstMessage: "x", messageCount: 2 }), "rilis");
   assert.equal(sessionLabel({ firstMessage: "baris satu\n  baris dua", messageCount: 2 }), "baris satu baris dua");
-  assert.equal(sessionLabel({ firstMessage: "(no messages)", messageCount: 0 }), "Tanpa judul");
+  assert.equal(sessionLabel({ firstMessage: "(no messages)", messageCount: 0 }), "Untitled");
 });

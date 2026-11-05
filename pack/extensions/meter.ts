@@ -14,7 +14,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const MODELS_URL = "https://api.nusagate.com/api/public/models";
-const BALANCE_URL = "https://api.nusagate.com/v1/balance";
+export const BALANCE_URL = "https://api.nusagate.com/v1/balance";
+/** setup.ts publishes a key entered during the session here. */
+export const KEY_CHANNEL = "nusacode:api-key";
 const TOPUP_URL = "https://nusagate.com/dashboard/wallet";
 const PROVIDER = "nusagate";
 const STATUS_KEY = "nusa-meter";
@@ -115,7 +117,7 @@ function percent(part: number, whole: number): string {
 }
 
 /** Report rows are aligned on a label column so the panel reads as a table. */
-const LABEL_WIDTH = 12;
+const LABEL_WIDTH = 14;
 
 function row(label: string, value: string): string {
   return `${label.padEnd(LABEL_WIDTH)}${value}`;
@@ -234,7 +236,7 @@ export default function meter(pi: ExtensionAPI) {
   /** Best-effort wallet refresh; failures keep the last known balance. */
   async function refreshBalance(key: string | undefined): Promise<void> {
     if (!key) {
-      balanceError = "API key NusaGate tidak ditemukan";
+      balanceError = "NusaGate API key not found";
       return;
     }
     try {
@@ -246,23 +248,23 @@ export default function meter(pi: ExtensionAPI) {
   }
 
   function balanceRows(): string[] {
-    if (!balance) return [row("Saldo", `tidak tersedia (${balanceError ?? "unknown"})`)];
-    const lines = [row("Saldo", idr(balance.balanceIdr))];
+    if (!balance) return [row("Balance", `unavailable (${balanceError ?? "unknown"})`)];
+    const lines = [row("Balance", idr(balance.balanceIdr))];
     if (balance.pass) {
       const { remainingIdr, totalIdr, endsAt } = balance.pass;
-      lines.push(row("Pass", `${idr(remainingIdr)} sisa dari ${idr(totalIdr)} · s/d ${endsAt.slice(0, 10)}`));
+      lines.push(row("Pass", `${idr(remainingIdr)} left of ${idr(totalIdr)} · until ${endsAt.slice(0, 10)}`));
     }
-    if (balance.balanceIdr < LOW_BALANCE_IDR) lines.push(`Saldo menipis · top up: ${topupLink()}`);
+    if (balance.balanceIdr < LOW_BALANCE_IDR) lines.push(`Low balance · top up: ${topupLink()}`);
     return lines;
   }
 
   function statusText(): string {
     const used = totalTokens(totals);
     if (totals.requests === 0) {
-      if (prices) return "nusa · belum ada pemakaian";
-      return priceError ? "nusa · harga tidak tersedia" : "nusa · memuat harga...";
+      if (prices) return "nusa · no usage yet";
+      return priceError ? "nusa · prices unavailable" : "nusa · loading prices...";
     }
-    if (!prices) return `nusa · ${tokens(used)} tok · biaya tidak tersedia`;
+    if (!prices) return `nusa · ${tokens(used)} tok · cost unavailable`;
     const prefix = totals.unpriced > 0 ? "≥ " : "";
     const saving =
       totals.officialIdr > 0 ? ` · −${percent(totals.officialIdr - totals.costIdr, totals.officialIdr)}` : "";
@@ -275,33 +277,33 @@ export default function meter(pi: ExtensionAPI) {
     if (balance) {
       const low = balance.balanceIdr < LOW_BALANCE_IDR;
       rows.push({
-        label: "Saldo",
-        value: low ? `${idr(balance.balanceIdr)} · menipis, /topup` : idr(balance.balanceIdr),
+        label: "Balance",
+        value: low ? `${idr(balance.balanceIdr)} · low, /topup` : idr(balance.balanceIdr),
         warn: low,
       });
       if (balance.pass) {
         const { remainingIdr, totalIdr, endsAt } = balance.pass;
         rows.push({
           label: "Pass",
-          value: `${idr(remainingIdr)} sisa dari ${idr(totalIdr)} · s/d ${endsAt.slice(0, 10)}`,
+          value: `${idr(remainingIdr)} left of ${idr(totalIdr)} · until ${endsAt.slice(0, 10)}`,
         });
       }
     } else {
-      rows.push({ label: "Saldo", value: balanceError ? `tidak tersedia (${balanceError})` : "memuat...", warn: !!balanceError });
+      rows.push({ label: "Balance", value: balanceError ? `unavailable (${balanceError})` : "loading...", warn: !!balanceError });
     }
     if (!prices) {
-      rows.push({ label: "Harga", value: priceError ? "tidak tersedia" : "memuat..." });
+      rows.push({ label: "Price", value: priceError ? "unavailable" : "loading..." });
       return rows;
     }
     const price = modelId === undefined ? undefined : prices.get(modelId);
     if (!price) {
-      rows.push({ label: "Harga", value: "model tidak ada di katalog" });
+      rows.push({ label: "Price", value: "model not in catalog" });
       return rows;
     }
-    rows.push({ label: "Harga", value: `${idr(price.inputPer1M)} input · ${idr(price.outputPer1M)} output /1M` });
+    rows.push({ label: "Price", value: `${idr(price.inputPer1M)} input · ${idr(price.outputPer1M)} output /1M` });
     if (price.officialInputPer1M !== null && price.officialOutputPer1M !== null) {
       const official = price.officialInputPer1M + price.officialOutputPer1M;
-      rows.push({ label: "Hemat", value: `${percent(official - price.inputPer1M - price.outputPer1M, official)} dari harga resmi` });
+      rows.push({ label: "Saved", value: `${percent(official - price.inputPer1M - price.outputPer1M, official)} vs list price` });
     }
     return rows;
   }
@@ -316,28 +318,28 @@ export default function meter(pi: ExtensionAPI) {
   }
 
   function unavailableLine(): string {
-    return `Biaya tidak tersedia (fetch harga gagal: ${priceError ?? "unknown"})`;
+    return `Cost unavailable (price fetch failed: ${priceError ?? "unknown"})`;
   }
 
   function report(): string {
     const used = totalTokens(totals);
     const prompt = totals.freshInput + totals.cacheRead;
-    const header = `NusaCode · ${[...modelsUsed].join(", ") || "belum ada model"}`;
+    const header = `NusaCode · ${[...modelsUsed].join(", ") || "no model yet"}`;
     const lines = [header, "─".repeat(Math.max(header.length, 32))];
     if (totals.requests === 0) {
-      lines.push("Belum ada pemakaian di sesi ini.");
-      lines.push(prices ? `Harga: ${priceSource} (fetch sekali saat session_start)` : unavailableLine());
+      lines.push("No usage in this session yet.");
+      lines.push(prices ? `Prices: ${priceSource} (fetched once at session start)` : unavailableLine());
       lines.push(...balanceRows());
       return lines.join("\n");
     }
-    const requestValue = [`${totals.requests} request`];
+    const requestValue = [`${totals.requests}`];
     if (totals.subagentRequests > 0) {
       requestValue.push(`subagent ${totals.subagentRequests} · ${tokens(totals.subagentTokens)} tok`);
     }
-    lines.push(row("Request", requestValue.join(" · ")));
+    lines.push(row("Requests", requestValue.join(" · ")));
     lines.push(
       row(
-        "Token",
+        "Tokens",
         `${tokens(used)} · input ${tokens(totals.freshInput)} · cache ${tokens(totals.cacheRead)} · output ${tokens(totals.output)}`,
       ),
     );
@@ -346,20 +348,20 @@ export default function meter(pi: ExtensionAPI) {
     }
     if (lastSpeed !== null) {
       const average = Math.round(tokensPerSecond(speedTokens, speedMs));
-      lines.push(row("Kecepatan", `${Math.round(lastSpeed)} tok/s terakhir · rata-rata ${average} tok/s`));
+      lines.push(row("Speed", `${Math.round(lastSpeed)} tok/s last · ${average} tok/s average`));
     }
     if (prices) {
-      lines.push(row("Biaya sesi", idr(totals.costIdr)));
+      lines.push(row("Session cost", idr(totals.costIdr)));
       if (totals.officialIdr > 0) {
         lines.push(
           row(
-            "Harga resmi",
-            `${idr(totals.officialIdr)} · hemat ${percent(totals.officialIdr - totals.costIdr, totals.officialIdr)}`,
+            "List price",
+            `${idr(totals.officialIdr)} · saved ${percent(totals.officialIdr - totals.costIdr, totals.officialIdr)}`,
           ),
         );
       }
-      if (totals.unpriced > 0) lines.push(`${totals.unpriced} respons tanpa harga (model tidak ada di katalog)`);
-      lines.push(`Harga: ${priceSource} (fetch sekali saat session_start)`);
+      if (totals.unpriced > 0) lines.push(`${totals.unpriced} response(s) without a price (model not in catalog)`);
+      lines.push(`Prices: ${priceSource} (fetched once at session start)`);
     } else {
       lines.push(unavailableLine());
     }
@@ -475,13 +477,23 @@ export default function meter(pi: ExtensionAPI) {
     publishSummary(event.model.provider, event.model.id);
   });
 
+  pi.events.on(KEY_CHANNEL, (data) => {
+    const key = asRecord(data)?.key;
+    if (typeof key !== "string") return;
+    apiKey = key;
+    keyId = shortKeyId(key);
+    void refreshBalance(key).then(() => {
+      if (lastCtx) refreshStatus(lastCtx);
+    });
+  });
+
   pi.on("turn_end", (_event, ctx) => {
     lastCtx = ctx;
     refreshStatus(ctx);
   });
 
   pi.registerCommand("usage", {
-    description: "Tampilkan meter biaya sesi (rupiah, token, penghematan)",
+    description: "Show the session cost meter (rupiah, tokens, savings)",
     handler: async (_args, ctx) => {
       // Refetch the wallet so the report reflects charges made since startup.
       await refreshBalance(apiKey);
@@ -490,11 +502,11 @@ export default function meter(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("topup", {
-    description: "Tampilkan saldo dan link top up NusaGate",
+    description: "Show your balance and a NusaGate top-up link",
     handler: async (_args, ctx) => {
       await refreshBalance(apiKey);
-      const saldo = balance ? `Saldo: ${idr(balance.balanceIdr)}` : `Saldo tidak tersedia (${balanceError ?? "unknown"})`;
-      ctx.ui.notify(`${saldo}\nTop up: ${topupLink()}`, "info");
+      const summary = balance ? `Balance: ${idr(balance.balanceIdr)}` : `Balance unavailable (${balanceError ?? "unknown"})`;
+      ctx.ui.notify(`${summary}\nTop up: ${topupLink()}`, "info");
     },
   });
 }
