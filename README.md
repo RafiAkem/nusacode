@@ -37,6 +37,15 @@ type what you want done.
 > [!NOTE]
 > NusaCode isn't on npm yet, so it runs from a checkout. To update, run `git pull && npm install`.
 
+## See it in action
+
+A first run: the setup splash, then NusaCode finds and fixes two real bugs in a small project, and `/usage` shows
+what that cost. The session and its costs are real; only the balance is sample data.
+
+<p align="center">
+  <img src="docs/demo.gif" alt="A NusaCode first run: the setup splash, the welcome screen, the agent fixing two bugs, and /usage reporting the cost, tokens, cache hit rate and speed" width="820">
+</p>
+
 ## Features
 
 |  |  |
@@ -202,6 +211,7 @@ Files are only seeded once and are never replaced. When a new version adds a def
 | `NUSAGATE_API_KEY` | API key, instead of entering it during setup |
 | `NUSACODE_HOME` | Home directory (default `~/.nusacode`) |
 | `NUSACODE_SKIP_SETUP=1` | Skip first-time setup |
+| `NUSACODE_NO_SPLASH=1` | Skip the setup splash and confirmation screens |
 | `NUSACODE_NO_LEARN=1` | Turn off automatic learning |
 | `NUSACODE_NO_TOKEN_SAVER=1` | Turn off all token saving |
 | `NUSACODE_TRUNCATE_LINES` | Tool output line limit; `0` turns off truncation |
