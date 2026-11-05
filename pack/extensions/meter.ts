@@ -20,6 +20,8 @@ const PROVIDER = "nusagate";
 const STATUS_KEY = "nusa-meter";
 /** Shared extension event bus channel; subagents.ts publishes child usage here. */
 const USAGE_CHANNEL = "nusacode:usage";
+/** Wallet and price rows for the startup screen in brand.ts. */
+export const SUMMARY_CHANNEL = "nusacode:usage-summary";
 const FETCH_TIMEOUT_MS = 5_000;
 /** Below this the report carries the topup link. */
 const LOW_BALANCE_IDR = 5_000;
@@ -46,6 +48,8 @@ type Balance = {
   /** Monthly pass, when the account has one: its own quota on top of the wallet. */
   pass: { totalIdr: number; remainingIdr: number; endsAt: string } | null;
 };
+
+export type SummaryRow = { label: string; value: string; warn?: boolean };
 
 type Totals = {
   requests: number;
@@ -252,8 +256,49 @@ export default function meter(pi: ExtensionAPI) {
     return `nusa · ${prefix}${idr(totals.costIdr)} · ${tokens(used)} tok${saving}`;
   }
 
+  function summaryRows(modelId: string | undefined): SummaryRow[] {
+    const rows: SummaryRow[] = [];
+    if (balance) {
+      const low = balance.balanceIdr < LOW_BALANCE_IDR;
+      rows.push({
+        label: "Saldo",
+        value: low ? `${idr(balance.balanceIdr)} · menipis, /topup` : idr(balance.balanceIdr),
+        warn: low,
+      });
+      if (balance.pass) {
+        const { remainingIdr, totalIdr, endsAt } = balance.pass;
+        rows.push({
+          label: "Pass",
+          value: `${idr(remainingIdr)} sisa dari ${idr(totalIdr)} · s/d ${endsAt.slice(0, 10)}`,
+        });
+      }
+    } else {
+      rows.push({ label: "Saldo", value: balanceError ? `tidak tersedia (${balanceError})` : "memuat...", warn: !!balanceError });
+    }
+    if (!prices) {
+      rows.push({ label: "Harga", value: priceError ? "tidak tersedia" : "memuat..." });
+      return rows;
+    }
+    const price = modelId === undefined ? undefined : prices.get(modelId);
+    if (!price) {
+      rows.push({ label: "Harga", value: "model tidak ada di katalog" });
+      return rows;
+    }
+    rows.push({ label: "Harga", value: `${idr(price.inputPer1M)} input · ${idr(price.outputPer1M)} output /1M` });
+    if (price.officialInputPer1M !== null && price.officialOutputPer1M !== null) {
+      const official = price.officialInputPer1M + price.officialOutputPer1M;
+      rows.push({ label: "Hemat", value: `${percent(official - price.inputPer1M - price.outputPer1M, official)} dari harga resmi` });
+    }
+    return rows;
+  }
+
+  function publishSummary(provider: string | undefined, modelId: string | undefined): void {
+    pi.events.emit(SUMMARY_CHANNEL, { rows: summaryRows(provider === PROVIDER ? modelId : undefined) });
+  }
+
   function refreshStatus(ctx: ExtensionContext): void {
     ctx.ui.setStatus(STATUS_KEY, statusText());
+    publishSummary(ctx.model?.provider, ctx.model?.id);
   }
 
   function unavailableLine(): string {
@@ -386,6 +431,10 @@ export default function meter(pi: ExtensionAPI) {
     totals.subagentRequests += 1;
     totals.subagentTokens += counts.input + counts.cacheRead + counts.cacheWrite + counts.output;
     if (lastCtx) refreshStatus(lastCtx);
+  });
+
+  pi.on("model_select", (event) => {
+    publishSummary(event.model.provider, event.model.id);
   });
 
   pi.on("turn_end", (_event, ctx) => {

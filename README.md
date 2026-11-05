@@ -111,6 +111,7 @@ menyembunyikan output yang seharusnya terlihat.
 Test dijalankan dengan `npm test`. Semuanya memakai `node:test` dan `node:assert/strict`,
 tanpa framework dan tanpa dependensi tambahan, dan berada di `pack/test/`.
 
+- `brand.test.ts` — tata letak layar startup, lebar sempit, dan frame animasi halo.
 - `meter.test.ts` — aritmetika rupiah meter: pembulatan ke atas per request, harga cache
   dan fallback-nya, model tanpa harga, serta fetch harga yang gagal.
 - `token-saver.test.ts` — pemotongan output dan pointer `offset`, serta peringatan cache
@@ -129,7 +130,8 @@ config/settings.default.json provider dan model default
 config/models.json           definisi provider nusagate
 config/agents/*.md           lima definisi agent untuk tool task
 pack/extensions/meter.ts     meter biaya rupiah + perintah /usage dan /topup
-pack/extensions/brand.ts     header startup (wordmark NusaCode)
+pack/extensions/brand.ts     layar startup (logo N dengan halo beranimasi, tips, pemakaian, sesi terakhir)
+pack/themes/*.json           tema nusagate-dark dan nusagate-light (warna nusagate.com)
 pack/extensions/token-saver.ts  cache guard, pemotongan output, routing thinking
 pack/extensions/subagents.ts tool task dan protokol usage anak
 ```

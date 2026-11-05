@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import meter from "../extensions/meter.ts";
+import meter, { SUMMARY_CHANNEL, type SummaryRow } from "../extensions/meter.ts";
 
 const DEFAULT_MODELS_URL = "https://api.nusagate.com/api/public/models";
 /** The wallet row, normalized like costLine so column padding does not matter. */
@@ -25,6 +25,7 @@ function harness() {
   const commands: Record<string, (args: string, ctx: Ctx) => unknown> = {};
   const notifications: string[] = [];
   const statuses: string[] = [];
+  const summaries: SummaryRow[][] = [];
   const pi = {
     on(name: string, fn: Handler) {
       handlers[name] = fn;
@@ -32,7 +33,12 @@ function harness() {
     registerCommand(name: string, def: { handler: (args: string, ctx: Ctx) => unknown }) {
       commands[name] = def.handler;
     },
-    events: { on: () => {} },
+    events: {
+      on: () => {},
+      emit(channel: string, data: unknown) {
+        if (channel === SUMMARY_CHANNEL) summaries.push((data as { rows: SummaryRow[] }).rows);
+      },
+    },
     getSettings: () => ({}),
     getThinkingLevel: () => "off",
     setThinkingLevel: () => {},
@@ -55,6 +61,7 @@ function harness() {
     handlers,
     notifications,
     statuses,
+    summaries,
     start: () => handlers.session_start({}, ctx),
     respond: (model: string, usage: Usage) =>
       handlers.message_end(
@@ -283,6 +290,48 @@ test("keeps billing when the balance endpoint fails", async (t) => {
   const report = await h.report();
   assert.equal(costLine(report), "Biaya sesi Rp 3.000");
   assert.equal(saldoLine(report), "Saldo tidak tersedia (HTTP 503)");
+});
+
+test("startup summary goes from loading to wallet and price rows", async (t) => {
+  restoreFetch(t);
+  stubFetch(
+    catalog(priceRow("test-model", { inputPer1M: 3000, outputPer1M: 6000, officialUsdInputPer1M: 1, officialUsdOutputPer1M: 1 })),
+    {
+      balance: {
+        balance: 250_000,
+        pass: { valueTotalIdr: 500_000, valueRemainingIdr: 487_758, endsAt: "2026-11-30T17:28:28.826Z" },
+      },
+    },
+  );
+  const h = harness();
+  (h.ctx as unknown as { model: unknown }).model = { provider: "nusagate", id: "test-model" };
+  await h.start();
+
+  assert.deepEqual(h.summaries[0], [
+    { label: "Saldo", value: "memuat...", warn: false },
+    { label: "Harga", value: "memuat..." },
+  ]);
+  assert.deepEqual(h.summaries.at(-1), [
+    { label: "Saldo", value: "Rp 250.000", warn: false },
+    { label: "Pass", value: "Rp 487.758 sisa dari Rp 500.000 · s/d 2026-11-30" },
+    { label: "Harga", value: "Rp 3.000 input · Rp 6.000 output /1M" },
+    { label: "Hemat", value: "75.0% dari harga resmi" },
+  ]);
+});
+
+test("startup summary flags a low balance and a failed wallet fetch", async (t) => {
+  restoreFetch(t);
+  const prices = catalog(priceRow("test-model", { inputPer1M: 3000, outputPer1M: 6000 }));
+
+  stubFetch(prices, { balance: { balance: 4_000 } });
+  const low = harness();
+  await low.start();
+  assert.deepEqual(low.summaries.at(-1)?.[0], { label: "Saldo", value: "Rp 4.000 · menipis, /topup", warn: true });
+
+  stubFetch(prices, { balanceStatus: 503 });
+  const failed = harness();
+  await failed.start();
+  assert.deepEqual(failed.summaries.at(-1)?.[0], { label: "Saldo", value: "tidak tersedia (HTTP 503)", warn: true });
 });
 
 test("/topup reports the balance next to the link", async (t) => {

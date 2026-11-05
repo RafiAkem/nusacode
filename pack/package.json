@@ -10,10 +10,14 @@
   "pi": {
     "extensions": [
       "./extensions"
+    ],
+    "themes": [
+      "./themes"
     ]
   },
   "files": [
-    "extensions"
+    "extensions",
+    "themes"
   ],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
