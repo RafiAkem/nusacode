@@ -23,7 +23,7 @@ type ColorMode = ReturnType<Theme["getColorMode"]>;
 const RESET = "\x1b[0m";
 
 /** The N, by material: S silver face, G green face, g the lit inner edge. */
-const LOGO = [
+export const LOGO = [
   "              GGGGG     ",
   "    SSSSS     GGGGGG    ",
   "   SSSSSSSS   GGGGGG    ",
@@ -38,10 +38,10 @@ const LOGO = [
 ];
 const LOGO_WIDTH = LOGO[0].length;
 const LOGO_HEIGHT = LOGO.length;
-const GLYPHS: Record<string, string> = { S: "#", G: "%", g: "|" };
+export const GLYPHS: Record<string, string> = { S: "#", G: "%", g: "|" };
 
 /** Each material's color at the top and bottom of the logo; the green is nusagate.com's accent. */
-const SHADES: Record<string, [Color, Color]> = {
+export const SHADES: Record<string, [Color, Color]> = {
   S: [parseColor("#dfe8e3"), parseColor("#8fa39a")],
   G: [parseColor("#4ed899"), parseColor("#0c6e4a")],
   g: [parseColor("#5cdea2"), parseColor("#5cdea2")],
