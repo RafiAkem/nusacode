@@ -1,7 +1,7 @@
 /**
  * The web server behind /remote.
  *
- * It listens on 127.0.0.1 only. Every request must carry the session's random token, as a
+ * It listens on 127.0.0.1 unless told otherwise (see remote-network.ts). Every request must carry the session's random token, as a
  * cookie, a bearer header, or (once, on the landing page) a ?token= query that is turned
  * into a cookie. To reach it from a phone, tunnel to it with Tailscale or SSH; nothing here
  * is exposed to the network by itself.
@@ -17,6 +17,7 @@ export type RemoteHandlers = {
 };
 
 export type RemoteServer = {
+  host: string;
   url: string;
   port: number;
   token: string;
@@ -100,8 +101,11 @@ export function startRemoteServer(options: {
   token?: string;
   /** Tried first; if it is taken, any free port is used. */
   preferredPort?: number;
+  /** The address to listen on. Default 127.0.0.1, this computer only. */
+  host?: string;
 }): Promise<RemoteServer> {
   const token = options.token ?? newToken();
+  const host = options.host ?? "127.0.0.1";
   const sse = new Set<ServerResponse>();
 
   const server: Server = createServer(async (req, res) => {
@@ -168,7 +172,7 @@ export function startRemoteServer(options: {
   const listen = (port: number) =>
     new Promise<void>((resolve, reject) => {
       server.once("error", reject);
-      server.listen(port, "127.0.0.1", () => {
+      server.listen(port, host, () => {
         server.off("error", reject);
         resolve();
       });
@@ -183,7 +187,8 @@ export function startRemoteServer(options: {
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : 0;
     return {
-      url: `http://127.0.0.1:${port}/?token=${token}`,
+      host,
+      url: `http://${host}:${port}/?token=${token}`,
       port,
       token,
       notify: () => {

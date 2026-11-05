@@ -61,14 +61,20 @@ what that cost. The session and its costs are real; only the balance is sample d
 
 ## Remote control
 
-`/remote` starts a small web page for the session you have open. Open the link it prints to watch the
-conversation live, send messages, and stop the agent from a browser, for example on your phone.
+`/remote` starts a small web page for the session you have open. Open its link, or scan the QR code with your
+phone, to watch the conversation live, send messages, and stop the agent from a browser.
 
-- It listens on `127.0.0.1` only and needs a random token, so nothing is exposed by default.
-- To reach it from another device, tunnel to the port with [Tailscale](https://tailscale.com) or
-  `ssh -L 7842:127.0.0.1:7842 your-computer`, then open the link there.
+| Command | Listens on | Who can reach it |
+| --- | --- | --- |
+| `/remote` | Your [Tailscale](https://tailscale.com) address if you have one, else this computer | Only your own devices, over Tailscale |
+| `/remote lan` | Your Wi-Fi address | Anything on that network, over plain HTTP. Trusted networks only |
+| `/remote local` | This computer only | This computer |
+| `/remote status`, `/remote stop` | | |
+
+- Every request needs the random token in the link, so a guessed address is not enough.
+- Behind your own tunnel or proxy, set `NUSACODE_REMOTE_URL` (for example `https://my-pc.tail1234.ts.net`) and the link and QR code will use it.
 - The page cannot answer questions or dialogs that are open in the terminal, such as the `ask` panel.
-- Set `NUSACODE_REMOTE_PORT` to choose the port (default 7842).
+- `nusacode --remote` starts it at launch. `NUSACODE_REMOTE_PORT` sets the port (default 7842).
 
 ## Commands
 
@@ -83,7 +89,7 @@ conversation live, send messages, and stop the agent from a browser, for example
 | `/setup` | Run first-time setup again |
 | `/sessions` | Switch session in one step; add words to filter, or `all` to search every folder |
 | `/resume` | Continue an earlier session |
-| `/remote` | Watch and steer this session from a browser. `/remote status`, `/remote stop`, or start with `nusacode --remote` |
+| `/remote` | Watch and steer this session from a browser or phone, with a QR code. See [Remote control](#remote-control) |
 
 Start a message with `!` to run a shell command, or `!!` to run it without sending the output to the model.
 

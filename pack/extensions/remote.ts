@@ -1,27 +1,59 @@
 /**
  * /remote: watch and steer this session from a browser, for example on your phone.
  *
- *   /remote           start the server and print the link
- *   /remote status    show the link and how many pages are connected
- *   /remote stop      shut it down
- *   nusacode --remote start it at launch
+ *   /remote            start it, on your Tailscale address if you have one, else this computer only
+ *   /remote lan        listen on your Wi-Fi address instead (plain HTTP; trusted networks only)
+ *   /remote local      this computer only
+ *   /remote status     show the link and how many pages are connected
+ *   /remote stop       shut it down
+ *   nusacode --remote  start it at launch
  *
- * The server listens on 127.0.0.1 only and needs a random token. To reach it from another
- * device, tunnel to the port with Tailscale or SSH. A page can send messages and stop the
- * agent; it cannot answer questions or dialogs that are open in the terminal.
+ * Every request needs a random token. A QR code of the link is shown whenever a phone could
+ * reach it. A page can send messages and stop the agent; it cannot answer questions or
+ * dialogs that are open in the terminal.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { qrLines } from "../lib/qr.ts";
 import { REMOTE_PAGE } from "../lib/remote-page.ts";
+import { resolveHost, tailscaleIp, type Mode } from "../lib/remote-network.ts";
 import { startRemoteServer, type RemoteServer } from "../lib/remote-server.ts";
 import { buildState, targetOf } from "../lib/remote-state.ts";
 
 const STATUS_KEY = "remote";
 const DEFAULT_PORT = 7842;
 
+const TIPS: Record<Mode, string> = {
+  local:
+    "Only this computer can open it. For your phone, install Tailscale and run /remote, or run /remote lan on a network you trust.",
+  tailscale: "Reachable only from devices signed in to your Tailscale account.",
+  lan: "This is plain HTTP on your local network: anyone on it who sees the link could control this session. Use it only on a network you trust. Windows may ask to allow access through the firewall.",
+};
+
+const NAMES: Record<Mode, string> = { local: "this computer only", tailscale: "over Tailscale", lan: "on your local network" };
+
+/** The link to show: the server's own, or your own address from NUSACODE_REMOTE_URL. */
+export function linkFor(server: Pick<RemoteServer, "url" | "token">, base = process.env.NUSACODE_REMOTE_URL): string {
+  return base ? `${base.replace(/\/+$/, "")}/?token=${server.token}` : server.url;
+}
+
+/** The message shown after starting: the link, a QR code when a phone can use it, and what to know. */
+export function describe(server: RemoteServer, mode: Mode, base = process.env.NUSACODE_REMOTE_URL): string {
+  const link = linkFor(server, base);
+  const n = server.clients();
+  const phoneCanReach = mode !== "local" || Boolean(base);
+  return [
+    `Remote control is on, ${base ? "through your own address" : NAMES[mode]}. The link contains your access token, so keep it private:`,
+    link,
+    ...(phoneCanReach ? ["", ...qrLines(link), "", "Scan it with your phone's camera."] : []),
+    `${n} page${n === 1 ? "" : "s"} connected. ${base ? "You set NUSACODE_REMOTE_URL, so the link points there; the server itself listens on this computer only." : TIPS[mode]}`,
+  ].join("\n");
+}
+
 export default function remote(pi: ExtensionAPI) {
   if (process.env.NUSACODE_SUBAGENT === "1") return;
 
   let server: RemoteServer | null = null;
+  let serverMode: Mode = "local";
   let latest: ExtensionContext | null = null;
   let live: unknown;
   let running = false;
@@ -51,24 +83,6 @@ export default function remote(pi: ExtensionAPI) {
     });
   }
 
-  async function start(ctx: ExtensionContext): Promise<RemoteServer> {
-    if (server) return server;
-    server = await startRemoteServer({
-      page: REMOTE_PAGE,
-      preferredPort: Number(process.env.NUSACODE_REMOTE_PORT) || DEFAULT_PORT,
-      handlers: {
-        state: snapshot,
-        prompt: (text) => {
-          const idle = latest?.isIdle() ?? true;
-          pi.sendUserMessage(text, idle ? undefined : { deliverAs: "followUp" });
-        },
-        abort: () => latest?.abort(),
-      },
-    });
-    if (ctx.mode === "tui") ctx.ui.setStatus(STATUS_KEY, `remote :${server.port}`);
-    return server;
-  }
-
   async function stop(ctx: ExtensionContext): Promise<boolean> {
     if (!server) return false;
     await server.close();
@@ -77,21 +91,41 @@ export default function remote(pi: ExtensionAPI) {
     return true;
   }
 
-  function describe(current: RemoteServer): string {
-    const n = current.clients();
-    return [
-      `Remote control is on. Open this link (it contains your access token, so keep it private):`,
-      current.url,
-      `${n} page${n === 1 ? "" : "s"} connected. It only listens on this computer: to use it from a phone, tunnel to port ${current.port} with Tailscale or \`ssh -L ${current.port}:127.0.0.1:${current.port} <this-computer>\`.`,
-    ].join("\n");
+  /** Starts (or restarts, if the address changes) and returns the message to show. */
+  async function start(ctx: ExtensionContext, requested: Mode | "auto"): Promise<string> {
+    // Auto means Tailscale when it is there, because that is the safe way to reach a phone.
+    const mode: Mode = requested === "auto" ? (tailscaleIp() ? "tailscale" : "local") : requested;
+    if (server && serverMode !== mode) await stop(ctx);
+    if (!server) {
+      const where = resolveHost(mode);
+      if ("error" in where) return where.error;
+      server = await startRemoteServer({
+        page: REMOTE_PAGE,
+        host: where.host,
+        preferredPort: Number(process.env.NUSACODE_REMOTE_PORT) || DEFAULT_PORT,
+        handlers: {
+          state: snapshot,
+          prompt: (text) => {
+            const idle = latest?.isIdle() ?? true;
+            pi.sendUserMessage(text, idle ? undefined : { deliverAs: "followUp" });
+          },
+          abort: () => latest?.abort(),
+        },
+      });
+      serverMode = mode;
+      if (ctx.mode === "tui") ctx.ui.setStatus(STATUS_KEY, `remote :${server.port}`);
+    }
+    return describe(server, mode);
   }
 
-  pi.registerFlag("remote", { description: "Start remote control (a local web page for this session) at launch", type: "boolean" });
+  pi.registerFlag("remote", { description: "Start remote control (a web page for this session) at launch", type: "boolean" });
+
+  const WORDS = ["lan", "local", "status", "stop"];
 
   pi.registerCommand("remote", {
-    description: "Control this session from a browser: /remote, /remote status or /remote stop",
+    description: "Control this session from a browser or phone: /remote, /remote lan, /remote status, /remote stop",
     getArgumentCompletions: (prefix) =>
-      ["status", "stop"].filter((word) => word.startsWith(prefix.trim().toLowerCase())).map((word) => ({ value: word, label: word })),
+      WORDS.filter((word) => word.startsWith(prefix.trim().toLowerCase())).map((word) => ({ value: word, label: word })),
     handler: async (args, ctx) => {
       latest = ctx;
       const word = args.trim().toLowerCase();
@@ -99,16 +133,17 @@ export default function remote(pi: ExtensionAPI) {
         ctx.ui.notify((await stop(ctx)) ? "Remote control stopped." : "Remote control was not running.", "info");
         return;
       }
-      if (word === "status" && !server) {
-        ctx.ui.notify("Remote control is off. Run /remote to start it.", "info");
+      if (word === "status") {
+        ctx.ui.notify(server ? describe(server, serverMode) : "Remote control is off. Run /remote to start it.", "info");
         return;
       }
-      if (word && word !== "status" && word !== "start") {
-        ctx.ui.notify(`Unknown option "${word}". Use /remote, /remote status or /remote stop.`, "warning");
+      if (word && word !== "lan" && word !== "local" && word !== "start") {
+        ctx.ui.notify(`Unknown option "${word}". Use /remote, /remote lan, /remote local, /remote status or /remote stop.`, "warning");
         return;
       }
       try {
-        ctx.ui.notify(describe(await start(ctx)), "info");
+        const requested = word === "lan" || word === "local" ? word : "auto";
+        ctx.ui.notify(await start(ctx, requested), "info");
       } catch (err) {
         ctx.ui.notify(`Could not start remote control: ${err instanceof Error ? err.message : String(err)}`, "error");
       }
@@ -121,7 +156,7 @@ export default function remote(pi: ExtensionAPI) {
     changed();
     if (ctx.mode === "tui" && pi.getFlag("remote") === true && !server) {
       try {
-        ctx.ui.notify(describe(await start(ctx)), "info");
+        ctx.ui.notify(await start(ctx, "auto"), "info");
       } catch (err) {
         ctx.ui.notify(`Could not start remote control: ${err instanceof Error ? err.message : String(err)}`, "error");
       }

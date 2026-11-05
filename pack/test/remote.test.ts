@@ -208,7 +208,7 @@ test("the extension starts on /remote, relays prompts and stops again", async ()
   };
   process.env.NUSACODE_REMOTE_PORT = "0";
   handlers.get("session_start")!({}, ctx);
-  await command!("", ctx);
+  await command!("local", ctx);
   const link = /http:\/\/127\.0\.0\.1:(\d+)\/\?token=([\w-]+)/.exec(notes[0]);
   assert.ok(link, notes[0]);
   const headers = { Authorization: `Bearer ${link[2]}` };
