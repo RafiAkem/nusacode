@@ -23,7 +23,7 @@ const DEFAULT_TOOLS = "read,grep,find,ls";
 /** PLAN decision 6: a cost guard, not a preference. */
 const MAX_CONCURRENT = 4;
 const TIMEOUT_MS = Number(process.env.NUSACODE_SUBAGENT_TIMEOUT_MS ?? 600_000);
-const USAGE_CHANNEL = "nusacode:usage";
+export const USAGE_CHANNEL = "nusacode:usage";
 const STDERR_TAIL = 2_000;
 
 type Json = Record<string, unknown>;
@@ -31,8 +31,11 @@ type Json = Record<string, unknown>;
 type Agent = {
   name: string;
   model: string;
+  /** Comma-separated allowlist; empty means no tools at all. */
   tools: string;
   systemPrompt: string;
+  /** Leaves out skills and project context files, for children that only judge what they are given. */
+  isolated?: boolean;
 };
 
 type Usage = { input: number; cacheRead: number; cacheWrite: number; output: number };
@@ -125,7 +128,7 @@ function childCommand(): { file: string; args: string[] } {
   return { file: process.execPath, args: [] };
 }
 
-function runAgent(
+export function runAgent(
   agent: Agent,
   prompt: string,
   cwd: string,
@@ -144,7 +147,8 @@ function runAgent(
       "--approve",
       "--no-extensions",
       "--no-mcp",
-      "--tools", agent.tools,
+      ...(agent.tools ? ["--tools", agent.tools] : ["--no-tools"]),
+      ...(agent.isolated ? ["--no-skills", "--no-context-files"] : []),
       "--model", agent.model,
       "--system-prompt", agent.systemPrompt,
       prompt,

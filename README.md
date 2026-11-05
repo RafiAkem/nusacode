@@ -56,6 +56,7 @@ URL katalog harga bisa diganti lewat `NUSAGATE_MODELS_URL`; meter membacanya saa
 | --- | --- |
 | `/usage` | Tampilkan meter biaya sesi (rupiah, token, penghematan) |
 | `/topup` | Tampilkan saldo dan link top up saldo NusaGate |
+| `/skills` | Lihat skill yang dipelajari otomatis; `/skills hapus <nama>` menghapusnya |
 
 ## Subagent `task`
 
@@ -88,6 +89,25 @@ Laporan lengkap hanya muncul lewat `/usage`; ringkasannya selalu ada di status b
 Kecepatan (tok/s) dihitung dari token output dibagi waktu sejak chunk pertama sampai
 respons selesai, jadi waktu tunggu sebelum model mulai menjawab tidak ikut terhitung.
 
+## Belajar otomatis
+
+Setelah pekerjaan yang cukup besar (minimal 8 tool call, atau 4 bila sempat ada error
+yang berhasil diatasi), proses latar belakang membaca transkrip dan memutuskan apakah
+ada prosedur yang layak disimpan. Bila ada, skill ditulis ke
+`~/.nusacode/skills/learned-<nama>/SKILL.md` dan berlaku mulai sesi berikutnya; memuatnya
+di tengah sesi akan membatalkan cache prompt provider. Skill yang sudah ada ikut diperbaiki
+bila sesi membuktikan isinya salah atau kurang.
+
+- **Biaya:** tiap review adalah satu panggilan model berbayar, paling banyak tiga per sesi,
+  dan biayanya masuk ke meter.
+- **Keamanan:** proses review tidak punya tool, jadi teks di dalam transkrip tidak bisa
+  membuatnya bertindak. Secret disamarkan sebelum dikirim ke model, dan skill yang masih
+  terlihat memuat secret ditolak. Hanya skill berawalan `learned-` yang bisa disentuh.
+- **Batasan:** skill yang tersimpan dimuat di sesi-sesi berikutnya, dan penyaringan ini tidak
+  menjamin isinya bersih dari instruksi berbahaya. Periksa lewat `/skills`.
+
+`NUSACODE_NO_LEARN=1` mematikan fitur ini.
+
 ## Token saver
 
 Tiga tuas, dari yang termurah:
@@ -116,6 +136,7 @@ Test dijalankan dengan `npm test`. Semuanya memakai `node:test` dan `node:assert
 tanpa framework dan tanpa dependensi tambahan, dan berada di `pack/test/`.
 
 - `brand.test.ts` — tata letak layar startup, lebar sempit, dan frame animasi halo.
+- `learn.test.ts` — kapan review berjalan, penyamaran secret, validasi nama dan isi skill.
 - `meter.test.ts` — aritmetika rupiah meter: pembulatan ke atas per request, harga cache
   dan fallback-nya, model tanpa harga, serta fetch harga yang gagal.
 - `token-saver.test.ts` — pemotongan output dan pointer `offset`, serta peringatan cache
@@ -138,6 +159,7 @@ pack/extensions/brand.ts     layar startup (logo N dengan halo beranimasi, tips,
 pack/themes/*.json           tema nusagate-dark dan nusagate-light (warna nusagate.com)
 pack/extensions/token-saver.ts  cache guard, pemotongan output, routing thinking
 pack/extensions/subagents.ts tool task dan protokol usage anak
+pack/extensions/learn.ts     skill otomatis dari pekerjaan yang selesai + perintah /skills
 ```
 
 `pack/` adalah workspace npm (`@nusacode/pack`), diekspos sebagai pi-package lewat `pi.extensions: ["./extensions"]`.
