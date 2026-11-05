@@ -11,14 +11,19 @@
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { findImagePaths, formatBytes, isImageFile, mimeFor, Picture, readForModel } from "../lib/image-preview.ts";
+import { findImagePaths, formatBytes, isImageFile, mimeFor, openExternally, Picture, readForModel } from "../lib/image-preview.ts";
 
 export const TOKEN = /\[Image #(\d+)\]/g;
 const THUMB_COLS = 16;
 const THUMB_ROWS = 4;
 const GAP = 2;
-const BIG_ROWS = 20;
-const BIG_COLS = 100;
+const OPEN_KEY = "alt+o";
+
+/** The enlarged view fills the terminal width and most of its height. */
+function bigSize(width: number): { cols: number; rows: number } {
+  const rows = process.stdout.rows ?? 40;
+  return { cols: Math.max(20, width - 1), rows: Math.min(50, Math.max(12, rows - 10)) };
+}
 
 export type Attachment = { id: number; path: string; picture: Picture | null };
 
@@ -32,7 +37,7 @@ export function stripLines(view: StripView, width: number, theme: Pick<Theme, "f
   if (view.items.length === 0) return [];
   if (view.enlarged) {
     return [
-      truncateToWidth(`${theme.fg("accent", theme.bold(view.enlarged.title))}  ${theme.fg("dim", `${key} next · esc close`)}`, width, "…"),
+      truncateToWidth(`${theme.fg("accent", theme.bold(view.enlarged.title))}  ${theme.fg("dim", `${key} next · ${OPEN_KEY} open full size · esc close`)}`, width, "…"),
       ...view.enlarged.rows.map((row) => truncateToWidth(row, width, "")),
     ];
   }
@@ -45,7 +50,7 @@ export function stripLines(view: StripView, width: number, theme: Pick<Theme, "f
   }
   lines.push(shown.map((item) => theme.fg("dim", pad(truncateToWidth(item.label, THUMB_COLS, "…"), THUMB_COLS))).join(" ".repeat(GAP)));
   const more = view.items.length - shown.length;
-  lines.push(theme.fg("dim", `${more > 0 ? `+${more} more · ` : ""}${key} to enlarge`));
+  lines.push(theme.fg("dim", `${more > 0 ? `+${more} more · ` : ""}${key} to enlarge · ${OPEN_KEY} open full size`));
   return lines.map((line) => truncateToWidth(line, width, ""));
 }
 
@@ -86,6 +91,33 @@ class State {
   key = "alt+i";
   private next = 1;
   private editorText = "";
+  private lastText = "";
+
+  /**
+   * Backspace eats a token one character at a time, so `[Image #1]` becomes `[Image #1`.
+   * When the box holds the front of a token that was whole a moment ago, drop the rest of it.
+   */
+  collapseBrokenTokens(text: string): string {
+    let result = text;
+    for (const match of this.lastText.matchAll(TOKEN)) {
+      const token = match[0];
+      if (result.includes(token)) continue;
+      const head = this.lastText.slice(0, match.index);
+      if (!result.startsWith(head)) continue;
+      const rest = result.slice(head.length);
+      for (let length = token.length - 1; length >= 1; length--) {
+        if (rest.startsWith(token.slice(0, length))) {
+          result = head + rest.slice(length);
+          break;
+        }
+      }
+    }
+    return result;
+  }
+
+  remember(text: string): void {
+    this.lastText = text;
+  }
 
   /** Attaches a file and returns its token text. */
   attach(path: string): string {
@@ -148,7 +180,7 @@ class State {
       enlarged: big
         ? {
             title: `Image #${big.id} · ${big.picture?.name ?? big.path} · ${big.picture ? `${big.picture.width}×${big.picture.height} · ` : ""}${formatBytes(big.picture?.bytes ?? 0)}`,
-            rows: big.picture ? big.picture.render(Math.min(width, BIG_COLS), BIG_ROWS, 4) : ["(no preview for this file)"],
+            rows: big.picture ? big.picture.render(bigSize(width).cols, bigSize(width).rows, 4) : ["(no preview for this file)"],
           }
         : null,
     };
@@ -163,13 +195,14 @@ export default function images(pi: ExtensionAPI) {
   /** Swap any image path in the box for a token, and drop attachments the box no longer mentions. */
   function tick(ctx: ExtensionContext): void {
     const text = ctx.ui.getEditorText();
-    let next = text;
+    let next = state.collapseBrokenTokens(text);
     for (const found of findImagePaths(text).reverse()) {
       if (!isImageFile(found.path)) continue;
       next = next.slice(0, found.start) + state.attach(found.path) + next.slice(found.end);
     }
     if (next !== text) ctx.ui.setEditorText(next);
     state.sync(next);
+    state.remember(next);
   }
 
   pi.on("session_start", (_event, ctx) => {
@@ -181,6 +214,8 @@ export default function images(pi: ExtensionAPI) {
     timer.unref();
     offInput?.();
     offInput = ctx.ui.onTerminalInput((data) => {
+      // After a backspace, tidy a half-deleted token right away instead of at the next tick.
+      if (data === "" || data === "") setTimeout(() => tick(ctx), 0);
       // Esc closes the big preview; otherwise it keeps its usual job.
       if (data === "\x1b" && state.enlargedId !== null) {
         state.enlarge(null);
@@ -198,6 +233,13 @@ export default function images(pi: ExtensionAPI) {
     state.clear();
   });
 
+  pi.registerShortcut(OPEN_KEY, {
+    description: "Open the attached image in your image viewer at full size",
+    handler: () => {
+      const shown = state.present().find((a) => a.id === state.enlargedId) ?? state.present()[0];
+      if (shown) openExternally(shown.path);
+    },
+  });
   pi.registerShortcut("alt+i", { description: "Enlarge the attached images", handler: () => state.cycle() });
 
   pi.on("input", (event, ctx) => {

@@ -83,7 +83,7 @@ test("thumbnails sit side by side with a label row and a hint", () => {
   assert.equal(lines.length, 6);
   assert.equal(lines[0], `${"T".repeat(16)}  ${"T".repeat(16)}`);
   assert.ok(lines[4].includes("#1 640×480") && lines[4].includes("#2 32×32"));
-  assert.ok(lines[5].includes("alt+i to enlarge"));
+  assert.ok(lines[5].includes("alt+i to enlarge") && lines[5].includes("alt+o open full size"));
 });
 
 test("thumbnails that do not fit are counted, not squeezed", () => {
@@ -95,7 +95,7 @@ test("thumbnails that do not fit are counted, not squeezed", () => {
 test("an enlarged image replaces the thumbnails under a title", () => {
   const lines = stripLines(view({ enlarged: { title: "Image #2 · shot.png", rows: ["BIG1", "BIG2"] } }), 80, theme, "alt+i");
   assert.deepEqual(lines.slice(1), ["BIG1", "BIG2"]);
-  assert.ok(lines[0].includes("Image #2 · shot.png") && lines[0].includes("esc close"));
+  assert.ok(lines[0].includes("Image #2 · shot.png") && lines[0].includes("esc close") && lines[0].includes("alt+o open full size"));
 });
 
 type Handler = (event: any, ctx: any) => any;
@@ -179,5 +179,27 @@ test("the strip shows a thumbnail while the token is in the box and enlarges wit
   h.box.text = "token deleted";
   await new Promise((resolve) => setTimeout(resolve, 600));
   assert.deepEqual(h.strip.render(100), [], "removing the token removes the thumbnail");
+  h.end();
+});
+
+test("backspacing into a token removes the whole token, not one character at a time", async () => {
+  const h = await harness();
+  h.box.text = `look ${demo}`;
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(h.box.text, "look [Image #1]");
+  h.box.text = "look [Image #1"; // one backspace
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(h.box.text, "look ");
+  assert.deepEqual(h.strip.render(100), []);
+  h.end();
+});
+
+test("backspacing ordinary text is left alone", async () => {
+  const h = await harness();
+  h.box.text = `a ${demo} b [x`;
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  h.box.text = "a [Image #1] b [";
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(h.box.text, "a [Image #1] b [");
   h.end();
 });

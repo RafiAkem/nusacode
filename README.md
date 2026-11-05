@@ -82,6 +82,7 @@ Start a message with `!` to run a shell command, or `!!` to run it without sendi
 | `ctrl+t` | Expand or collapse thinking |
 | `ctrl+o` | Expand or collapse tool output |
 | `alt+i` | Enlarge the attached image, then the next one, then close |
+| `alt+o` | Open the attached image in your image viewer at full size |
 | `alt+v` | Paste an image or file from the clipboard (`ctrl+v` outside Windows) |
 | `ctrl+l` | Switch model |
 | `escape` | Interrupt the agent |

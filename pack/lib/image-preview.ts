@@ -8,6 +8,7 @@
  * any truecolor terminal. It is coarse but recognizable, and it works everywhere.
  */
 import { createRequire } from "node:module";
+import { spawn } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
@@ -143,7 +144,7 @@ export class Picture {
     const cached = this.cache.get(key);
     if (cached) return cached;
     const { w, h } = fitSize(this.width, this.height, maxCols, maxRows, maxScale);
-    const small = this.lib.resize(this.image, w, h, this.lib.SamplingFilter.Triangle);
+    const small = this.lib.resize(this.image, w, h, this.lib.SamplingFilter.Lanczos3);
     try {
       const rows = renderPixels(small.get_raw_pixels(), w, h);
       this.cache.set(key, rows);
@@ -157,6 +158,16 @@ export class Picture {
     this.image.free();
     this.cache.clear();
   }
+}
+
+/** Opens the file in the system's image viewer, where it shows at full resolution. */
+export function openExternally(path: string): void {
+  const file = expandHome(path);
+  // explorer/open/xdg-open take the path as an argument, so no shell ever parses it.
+  const [command, args]: [string, string[]] = process.platform === "win32" ? ["explorer.exe", [file]] : process.platform === "darwin" ? ["open", [file]] : ["xdg-open", [file]];
+  const child = spawn(command, args, { detached: true, stdio: "ignore", windowsHide: true });
+  child.on("error", () => {});
+  child.unref();
 }
 
 const MAX_SIDE = 2000;
