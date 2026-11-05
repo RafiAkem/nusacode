@@ -23,7 +23,7 @@ node bin/nusacode.js
 ```
 
 All arguments pass through to `pi`, including `--version`, which therefore reports pi's version
-(currently 1.4.0), not this package's (0.1.0). pi's `install`, `remove`, `list`, `config`, `auth` and
+(currently 1.5.0), not this package's (0.1.0). pi's `install`, `remove`, `list`, `config`, `auth` and
 `mcp` commands work and use the NusaCode home.
 
 ## Updating
