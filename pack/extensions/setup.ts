@@ -12,6 +12,7 @@
  * `NUSACODE_SKIP_SETUP=1` skips the automatic run.
  */
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { runSetupOutro } from "../lib/outro.ts";
 import { runSetupSplash } from "../lib/splash.ts";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -273,6 +274,14 @@ export default function setup(pi: ExtensionAPI) {
     const summary = importSummary(await runImport(ctx));
     // Marked at the end, so quitting halfway asks again next time.
     markSetupDone(nusacodeHome());
+    // Only now is it true, so only now does it say so. Same escape hatch as the splash.
+    if (process.env.NUSACODE_NO_SPLASH !== "1") {
+      try {
+        await runSetupOutro(ctx);
+      } catch {
+        // Cosmetic: the summary below still has to run.
+      }
+    }
     ctx.ui.notify(summary ? `Setup complete.\n${summary}` : "Setup complete.", "info");
   }
 
