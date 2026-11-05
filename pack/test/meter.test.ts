@@ -331,6 +331,32 @@ test("a reply with no measurable streaming time reports no speed", async (t) => 
   assert.doesNotMatch(await h.report(), /Speed/);
 });
 
+test("the list price saving ignores cached tokens, so cache hits can't inflate it", async (t) => {
+  restoreFetch(t);
+  // Official $1 and $2 per 1M at Rp 18.000 per USD: Rp 18.000 input and Rp 36.000 output.
+  stubFetch(
+    catalog(
+      priceRow("test-model", {
+        inputPer1M: 9_000,
+        outputPer1M: 18_000,
+        cachePricePercent: 10,
+        officialUsdInputPer1M: 1,
+        officialUsdOutputPer1M: 2,
+      }),
+    ),
+  );
+  const listPrice = async (usage: { input: number; cacheRead: number; output: number }) => {
+    const h = harness();
+    await h.start();
+    h.respond("test-model", usage);
+    return (await h.report()).split("\n").find((line) => line.startsWith("List price"));
+  };
+  const noCache = await listPrice({ input: 1_000_000, cacheRead: 0, output: 1_000_000 });
+  const heavyCache = await listPrice({ input: 1_000_000, cacheRead: 50_000_000, output: 1_000_000 });
+  assert.match(noCache as string, /Rp 54\.000 · saved 50\.0% \(excl\. cached tokens\)$/);
+  assert.equal(heavyCache, noCache);
+});
+
 test("startup summary goes from loading to wallet and price rows", async (t) => {
   restoreFetch(t);
   stubFetch(

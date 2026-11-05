@@ -63,8 +63,10 @@ type Totals = {
   cacheRead: number;
   output: number;
   costIdr: number;
-  /** What the same tokens would cost at the vendor's official USD price. */
+  /** Fresh input and output tokens at the vendor's official USD price. */
   officialIdr: number;
+  /** The same tokens at NusaGate's price, unrounded, for a like-for-like saving. */
+  comparableIdr: number;
   /** Responses whose model had no price row; their cost is not in `costIdr`. */
   unpriced: number;
   /** Subagent child processes report through the extension event bus, not `message_end`. */
@@ -79,6 +81,7 @@ const ZERO_TOTALS: Totals = {
   output: 0,
   costIdr: 0,
   officialIdr: 0,
+  comparableIdr: 0,
   unpriced: 0,
   subagentRequests: 0,
   subagentTokens: 0,
@@ -356,7 +359,7 @@ export default function meter(pi: ExtensionAPI) {
         lines.push(
           row(
             "List price",
-            `${idr(totals.officialIdr)} · saved ${percent(totals.officialIdr - totals.costIdr, totals.officialIdr)}`,
+            `${idr(totals.officialIdr)} · saved ${percent(totals.officialIdr - totals.comparableIdr, totals.officialIdr)} (excl. cached tokens)`,
           ),
         );
       }
@@ -430,9 +433,12 @@ export default function meter(pi: ExtensionAPI) {
       return;
     }
     totals.costIdr += billIdr(price, fresh, cached, usage.output);
+    // Cached tokens are left out on both sides: the catalog has no official cache
+    // price, and charging them at the full input rate would overstate the saving.
     if (price.officialInputPer1M !== null && price.officialOutputPer1M !== null) {
-      totals.officialIdr +=
-        ((fresh + cached) / 1_000_000) * price.officialInputPer1M + (usage.output / 1_000_000) * price.officialOutputPer1M;
+      const perMillion = (input: number, output: number) => (fresh / 1_000_000) * input + (usage.output / 1_000_000) * output;
+      totals.officialIdr += perMillion(price.officialInputPer1M, price.officialOutputPer1M);
+      totals.comparableIdr += perMillion(price.inputPer1M, price.outputPer1M);
     }
   }
 

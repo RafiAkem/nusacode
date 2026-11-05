@@ -124,6 +124,9 @@ and on each `/usage` or `/topup`. `NUSAGATE_BALANCE_URL` overrides the URL. If t
 pass, its remaining quota is shown too, and the top-up link appears in the report when the balance is
 under Rp 5.000.
 
+The saving against the vendor's list price in `/usage` compares fresh input and output tokens only:
+the catalog has no official cache price, so cached tokens are left out on both sides.
+
 The full report only appears through `/usage`; the status bar always shows a summary. Speed (tok/s) is
 output tokens divided by the time from the first streamed chunk to the end of the response, so waiting
 for the model to start doesn't count.
