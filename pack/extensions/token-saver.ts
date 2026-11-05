@@ -128,7 +128,7 @@ export default function tokenSaver(pi: ExtensionAPI) {
     if (event.isError) toolErrors += 1;
   });
 
-  // An explicit /think choice wins over routing for the rest of the session. Our own
+  // An explicit /effort or /thinking choice wins over routing for the rest of the session. Our own
   // setThinkingLevel below fires this same event, so ignore the echo of our own target.
   pi.on("thinking_level_select", (event) => {
     if (event.level !== lastTarget) userChose = true;

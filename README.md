@@ -67,6 +67,7 @@ what that cost. The session and its costs are real; only the balance is sample d
 | `/usage` | Show session cost, tokens, cache hit rate, speed and balance |
 | `/topup` | Show your balance and a top-up link |
 | `/model` | Switch model |
+| `/effort` | Pick how hard the model thinks, or set it directly: `/effort high`. Also `/thinking` |
 | `/skills` | List learned skills; `/skills delete <name>` removes one |
 | `/import-config` | Import skills and instructions from other coding agents |
 | `/setup` | Run first-time setup again |
