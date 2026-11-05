@@ -12,6 +12,7 @@ First public release.
 - Image attachments: paste an image or a file path, preview it above the prompt box, and enlarge it with `alt+i`.
 - `/thinking` levels for DeepSeek models.
 - Learned skills, subagents through the `task` tool, and token-saving defaults.
+- Web addresses anywhere on screen are clickable links (ctrl+click in Windows Terminal).
 - Dark and light themes, and a startup screen.
 
 ### Changed
