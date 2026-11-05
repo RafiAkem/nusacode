@@ -29,7 +29,7 @@ test("the QR is drawn two modules per line in half-blocks with explicit colors",
 });
 
 test("a longer link still fits a terminal", () => {
-  const lines = qrLines("http://192.168.100.200:7842/?token=pzkwjAarpbPUty2ii9VcfrUEaNk6n4fu");
+  const lines = qrLines("http://192.168.100.200:7842/?token=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
   assert.ok(lines.length <= 25, `${lines.length} lines`);
   assert.ok([...plain(lines[0])].length <= 60);
 });
