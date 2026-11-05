@@ -11,6 +11,7 @@ import learn, {
   learnedName,
   listLearned,
   parseDecision,
+  reviewModel,
   scrubSecrets,
   shouldReview,
 } from "../extensions/learn.ts";
@@ -194,4 +195,16 @@ test("NUSACODE_NO_LEARN and subagent children register nothing", (t) => {
     assert.equal(registered, 0, name);
     delete process.env[name];
   }
+});
+
+test("the review runs on a configured model, then NusaGate's, then the current one", () => {
+  const mine = { provider: "my-provider", id: "my-model" };
+  assert.equal(reviewModel("other/picked", true, mine), "other/picked");
+  assert.equal(reviewModel(undefined, true, mine), "nusagate/deepseek-v4.1-flash");
+  assert.equal(reviewModel(undefined, false, mine), "my-provider/my-model");
+});
+
+test("with no usable model there is no review", () => {
+  assert.equal(reviewModel(undefined, false, undefined), null);
+  assert.equal(reviewModel(undefined, false, { provider: "unknown", id: "unknown" }), null);
 });

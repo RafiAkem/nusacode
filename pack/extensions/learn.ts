@@ -25,6 +25,9 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { runAgent, USAGE_CHANNEL } from "./subagents.ts";
 
 const REVIEW_MODEL = "nusagate/deepseek-v4.1-flash";
+const NUSAGATE = "nusagate";
+/** pi's stand-in when no provider has a key. */
+const PLACEHOLDER_MODEL = "unknown";
 const REVIEW_TIMEOUT_MS = 120_000;
 const STATUS_KEY = "nusa-learn";
 const PREFIX = "learned-";
@@ -260,6 +263,20 @@ export function listLearned(dir: string): LearnedSkill[] {
 }
 
 /** The reviewer's prompt: known skills by name, in full only for the one this run used. */
+/**
+ * Which model reviews a session: the configured one, else a low-cost NusaGate model
+ * if there's a NusaGate key, else the model the user is on. Null when none can run.
+ */
+export function reviewModel(
+  configured: string | undefined,
+  hasNusaGateKey: boolean,
+  current: { provider: string; id: string } | undefined,
+): string | null {
+  if (configured) return configured;
+  if (hasNusaGateKey) return REVIEW_MODEL;
+  return current && current.id !== PLACEHOLDER_MODEL ? `${current.provider}/${current.id}` : null;
+}
+
 export function buildReviewPrompt(transcript: string, learned: readonly LearnedSkill[]): { prompt: string; updatable: string[] } {
   const used = learned.find((skill) => transcript.includes(skill.name));
   const sections: string[] = [];
@@ -282,10 +299,16 @@ export default function learn(pi: ExtensionAPI) {
   let shutdown = new AbortController();
 
   async function review(messages: readonly unknown[], ctx: ExtensionContext): Promise<void> {
+    const hasNusaGateKey = Boolean(await ctx.modelRegistry.getApiKeyForProvider(NUSAGATE).catch(() => undefined));
+    const model = reviewModel(process.env.NUSACODE_LEARN_MODEL, hasNusaGateKey, ctx.model);
+    if (!model) {
+      lastProblem = "no model available for the review";
+      return;
+    }
     const dir = skillsDir();
     const { prompt, updatable } = buildReviewPrompt(buildTranscript(messages), listLearned(dir));
     const result = await runAgent(
-      { name: "learn", model: REVIEW_MODEL, tools: "", systemPrompt: REVIEW_PROMPT, isolated: true },
+      { name: "learn", model, tools: "", systemPrompt: REVIEW_PROMPT, isolated: true },
       prompt,
       ctx.cwd,
       AbortSignal.any([shutdown.signal, AbortSignal.timeout(REVIEW_TIMEOUT_MS)]),
