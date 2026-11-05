@@ -84,6 +84,10 @@ saat `session_start` dan di setiap `/usage` atau `/topup`. URL-nya bisa diganti 
 `NUSAGATE_BALANCE_URL`. Bila akun punya pass bulanan, sisa kuotanya ikut ditampilkan,
 dan link top up muncul otomatis di laporan ketika saldo di bawah Rp 5.000.
 
+Laporan lengkap hanya muncul lewat `/usage`; ringkasannya selalu ada di status bar.
+Kecepatan (tok/s) dihitung dari token output dibagi waktu sejak chunk pertama sampai
+respons selesai, jadi waktu tunggu sebelum model mulai menjawab tidak ikut terhitung.
+
 ## Token saver
 
 Tiga tuas, dari yang termurah:

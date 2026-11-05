@@ -25,6 +25,7 @@ export const SUMMARY_CHANNEL = "nusacode:usage-summary";
 const FETCH_TIMEOUT_MS = 5_000;
 /** Below this the report carries the topup link. */
 const LOW_BALANCE_IDR = 5_000;
+const MIN_SPEED_SAMPLE_MS = 50;
 // Display-only: mirrors NusaGate's USD_IDR_RATE to render "vs official price".
 const USD_IDR = 18_000;
 
@@ -101,6 +102,10 @@ function tokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
+}
+
+function tokensPerSecond(output: number, elapsedMs: number): number {
+  return output / (elapsedMs / 1_000);
 }
 
 function percent(part: number, whole: number): string {
@@ -217,6 +222,11 @@ export default function meter(pi: ExtensionAPI) {
   let balanceError: string | null = null;
   /** Last context seen, so a bus event from a subagent can refresh the statusline. */
   let lastCtx: ExtensionContext | null = null;
+  /** When the current response's first chunk arrived. */
+  let firstChunkAt: number | null = null;
+  let lastSpeed: number | null = null;
+  let speedTokens = 0;
+  let speedMs = 0;
 
   /** Best-effort wallet refresh; failures keep the last known balance. */
   async function refreshBalance(key: string | undefined): Promise<void> {
@@ -253,7 +263,8 @@ export default function meter(pi: ExtensionAPI) {
     const prefix = totals.unpriced > 0 ? "≥ " : "";
     const saving =
       totals.officialIdr > 0 ? ` · −${percent(totals.officialIdr - totals.costIdr, totals.officialIdr)}` : "";
-    return `nusa · ${prefix}${idr(totals.costIdr)} · ${tokens(used)} tok${saving}`;
+    const speed = lastSpeed === null ? "" : ` · ${Math.round(lastSpeed)} tok/s`;
+    return `nusa · ${prefix}${idr(totals.costIdr)} · ${tokens(used)} tok${saving}${speed}`;
   }
 
   function summaryRows(modelId: string | undefined): SummaryRow[] {
@@ -330,6 +341,10 @@ export default function meter(pi: ExtensionAPI) {
     if (used > 0) {
       lines.push(row("Cache hit", `${bar(totals.cacheRead, prompt)} ${percent(totals.cacheRead, prompt)}`));
     }
+    if (lastSpeed !== null) {
+      const average = Math.round(tokensPerSecond(speedTokens, speedMs));
+      lines.push(row("Kecepatan", `${Math.round(lastSpeed)} tok/s terakhir · rata-rata ${average} tok/s`));
+    }
     if (prices) {
       lines.push(row("Biaya sesi", idr(totals.costIdr)));
       if (totals.officialIdr > 0) {
@@ -364,6 +379,10 @@ export default function meter(pi: ExtensionAPI) {
     balance = null;
     balanceError = null;
     priceSource = process.env.NUSAGATE_MODELS_URL || MODELS_URL;
+    firstChunkAt = null;
+    lastSpeed = null;
+    speedTokens = 0;
+    speedMs = 0;
     refreshStatus(ctx);
     const key = await ctx.modelRegistry.getApiKeyForProvider(PROVIDER).catch(() => undefined);
     keyId = key ? shortKeyId(key) : null;
@@ -382,6 +401,14 @@ export default function meter(pi: ExtensionAPI) {
     ]);
     refreshStatus(ctx);
   });
+
+  function recordSpeed(output: number, elapsedMs: number): void {
+    // A reply that arrives as one chunk has no measurable streaming time.
+    if (output <= 0 || elapsedMs < MIN_SPEED_SAMPLE_MS) return;
+    lastSpeed = tokensPerSecond(output, elapsedMs);
+    speedTokens += output;
+    speedMs += elapsedMs;
+  }
 
   /** Folds one provider response into the session totals. */
   function account(provider: string, model: string, usage: UsageCounts): void {
@@ -412,7 +439,15 @@ export default function meter(pi: ExtensionAPI) {
     const message = event.message;
     if (message.role !== "assistant" || !message.usage) return;
     account(message.provider, message.model, message.usage);
+    if (firstChunkAt !== null) recordSpeed(message.usage.output, Date.now() - firstChunkAt);
+    firstChunkAt = null;
     refreshStatus(ctx);
+  });
+
+  // Speed is timed from the first streamed chunk, so waiting on the model to
+  // start replying doesn't count against it.
+  pi.on("message_update", (event) => {
+    if (event.message.role === "assistant" && firstChunkAt === null) firstChunkAt = Date.now();
   });
 
   // Subagent children are separate processes, so their usage never reaches
@@ -440,12 +475,6 @@ export default function meter(pi: ExtensionAPI) {
   pi.on("turn_end", (_event, ctx) => {
     lastCtx = ctx;
     refreshStatus(ctx);
-  });
-
-  pi.on("agent_end", (_event, ctx) => {
-    if (totals.requests === 0) return;
-    refreshStatus(ctx);
-    ctx.ui.notify(report(), "info");
   });
 
   pi.registerCommand("usage", {

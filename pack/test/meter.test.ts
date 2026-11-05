@@ -68,7 +68,7 @@ function harness() {
         { message: { role: "assistant", provider: "nusagate", model, usage: { cacheRead: 0, cacheWrite: 0, ...usage } } },
         ctx,
       ),
-    /** The /usage command is the report surface; agent_end also notifies once requests > 0. */
+    /** The /usage command is the only report surface. */
     report: async () => {
       await commands.usage("", ctx);
       return notifications.at(-1) as string;
@@ -127,10 +127,11 @@ test("bills with the gateway formula: cacheWrite as fresh input, cacheRead at th
   // fresh = 100_000 input + 50_000 cacheWrite = 150_000 -> 450
   // cached = 200_000 at 10% of 3000 -> 60; output 25_000 at 6000 -> 150; total 660
   h.respond("test-model", { input: 100_000, cacheRead: 200_000, cacheWrite: 50_000, output: 25_000 });
-  await h.handlers.agent_end({}, h.ctx);
+  assert.equal(h.handlers.agent_end, undefined, "the report only appears on /usage");
+  assert.deepEqual(h.notifications, []);
 
   assert.equal(
-    h.notifications.at(-1),
+    await h.report(),
     [
       "NusaCode · nusagate/test-model",
       "─".repeat(32),
@@ -290,6 +291,44 @@ test("keeps billing when the balance endpoint fails", async (t) => {
   const report = await h.report();
   assert.equal(costLine(report), "Biaya sesi Rp 3.000");
   assert.equal(saldoLine(report), "Saldo tidak tersedia (HTTP 503)");
+});
+
+test("speed is timed from the first chunk and shown in the status and /usage", async (t) => {
+  restoreFetch(t);
+  stubFetch(catalog(priceRow("test-model", { inputPer1M: 3000, outputPer1M: 6000 })));
+  t.mock.timers.enable({ apis: ["Date"] });
+  const h = harness();
+  await h.start();
+  const reply = async (output: number, waitMs: number, streamMs: number) => {
+    t.mock.timers.tick(waitMs); // Time before the first chunk must not count.
+    const message = { role: "assistant" };
+    for (const elapsed of [0, streamMs]) {
+      t.mock.timers.tick(elapsed);
+      await h.handlers.message_update({ message }, h.ctx);
+    }
+    h.respond("test-model", { input: 10, output });
+  };
+
+  await reply(100, 5_000, 2_000);
+  assert.match(h.statuses.at(-1) as string, / · 50 tok\/s$/);
+
+  await reply(300, 0, 3_000);
+  assert.match(h.statuses.at(-1) as string, / · 100 tok\/s$/);
+  assert.match(await h.report(), /^Kecepatan\s+100 tok\/s terakhir · rata-rata 80 tok\/s$/m);
+});
+
+test("a reply with no measurable streaming time reports no speed", async (t) => {
+  restoreFetch(t);
+  stubFetch(catalog(priceRow("test-model", { inputPer1M: 3000, outputPer1M: 6000 })));
+  t.mock.timers.enable({ apis: ["Date"] });
+  const h = harness();
+  await h.start();
+
+  await h.handlers.message_update({ message: { role: "assistant" } }, h.ctx);
+  h.respond("test-model", { input: 10, output: 100 });
+
+  assert.doesNotMatch(h.statuses.at(-1) as string, /tok\/s/);
+  assert.doesNotMatch(await h.report(), /Kecepatan/);
 });
 
 test("startup summary goes from loading to wallet and price rows", async (t) => {

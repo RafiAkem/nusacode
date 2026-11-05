@@ -3,7 +3,15 @@ import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import brand, { logoFrame, sessionLabel, timeAgo, welcomeLines, type WelcomeView } from "../extensions/brand.ts";
+import brand, {
+  logoFrame,
+  sessionLabel,
+  statusBarLines,
+  timeAgo,
+  welcomeLines,
+  type StatusBarView,
+  type WelcomeView,
+} from "../extensions/brand.ts";
 
 const theme = {
   getColorMode: () => "truecolor",
@@ -121,6 +129,7 @@ function mount(docRows: number, entries: unknown[] = []) {
         getSessionDir: () => join(tmpdir(), "nusacode-no-such-dir"),
       },
       ui: {
+        setFooter: () => {},
         setHeader: (factory: (tui: unknown, theme: Theme) => typeof component) => {
           component = factory(tui, theme);
         },
@@ -163,6 +172,39 @@ test("usage rows apply until the first agent turn, then the box is frozen", () =
   m.onSummary({ rows: [{ label: "Saldo", value: "Rp 2" }] });
   assert.ok(!m.text().includes("Rp 2"));
   assert.ok(m.text().includes("Rp 1"));
+});
+
+const bar: StatusBarView = {
+  model: "deepseek-v4.1-flash",
+  folder: "nusacode",
+  branch: "main",
+  context: { tokens: 3_100, contextWindow: 1_048_576, percent: 0.3 },
+  autoCompact: true,
+  statuses: ["nusa · Rp 5 · 3.1k tok · 42 tok/s"],
+};
+
+test("status bar puts the session left and the meter right on one line", () => {
+  const lines = statusBarLines(bar, 100, theme).map(plain);
+  assert.equal(lines.length, 1);
+  assert.equal([...lines[0]].length, 100);
+  assert.ok(lines[0].startsWith("◆ deepseek-v4.1-flash · nusacode · main · 0.3%/1M ⟲"), lines[0]);
+  assert.ok(lines[0].endsWith("nusa · Rp 5 · 3.1k tok · 42 tok/s"), lines[0]);
+});
+
+test("status bar moves the meter to its own line when both don't fit", () => {
+  const lines = statusBarLines(bar, 60, theme).map(plain);
+  assert.equal(lines.length, 2);
+  assert.ok(lines[1].startsWith("nusa"), lines[1]);
+  for (const line of statusBarLines(bar, 20, theme).map(plain)) assert.ok([...line].length <= 20, line);
+});
+
+test("status bar shows optional parts only when they apply", () => {
+  const [line] = statusBarLines(
+    { ...bar, thinking: "high", sessionName: "rilis", branch: null, context: undefined, autoCompact: false, statuses: [] },
+    100,
+    theme,
+  ).map(plain);
+  assert.equal(line, "◆ deepseek-v4.1-flash • high · nusacode · rilis");
 });
 
 test("timeAgo buckets", () => {

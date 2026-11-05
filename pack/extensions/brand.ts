@@ -11,9 +11,10 @@
  * while the logo is on screen.
  */
 import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import type { Color, Component, TUI } from "@earendil-works/pi-tui";
 import { foregroundAnsi, mixColors, parseColor, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { ExtensionAPI, ExtensionContext, SessionInfo, Theme } from "@earendil-works/pi-coding-agent";
+import type { ContextUsage, ExtensionAPI, ExtensionContext, SessionInfo, Theme } from "@earendil-works/pi-coding-agent";
 import { keyText, SessionManager } from "@earendil-works/pi-coding-agent";
 import { SUMMARY_CHANNEL, type SummaryRow } from "./meter.ts";
 
@@ -320,6 +321,81 @@ class WelcomeHeader implements Component {
   }
 }
 
+export type StatusBarView = {
+  model: string;
+  /** Thinking level, for models that reason. */
+  thinking?: string;
+  folder: string;
+  sessionName?: string;
+  branch: string | null;
+  context: ContextUsage | undefined;
+  autoCompact: boolean;
+  /** Extension statuses such as the rupiah meter. */
+  statuses: string[];
+};
+
+function compactTokens(n: number): string {
+  if (n >= 1_000_000) return `${Number((n / 1_000_000).toFixed(1))}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return String(n);
+}
+
+function contextText(context: ContextUsage, theme: Theme): string {
+  const percent = context.percent ?? 0;
+  const text = `${context.percent === null ? "?" : `${percent.toFixed(1)}%`}/${compactTokens(context.contextWindow)}`;
+  if (percent > 90) return theme.fg("error", text);
+  return percent > 70 ? theme.fg("warning", text) : theme.fg("muted", text);
+}
+
+/** One line: session on the left, statuses on the right. Statuses wrap below when both don't fit. */
+export function statusBarLines(view: StatusBarView, width: number, theme: Theme): string[] {
+  const model = view.thinking ? `${view.model} • ${view.thinking}` : view.model;
+  const parts = [theme.fg("accent", `◆ ${model}`), theme.fg("text", view.folder)];
+  if (view.sessionName) parts.push(theme.fg("muted", view.sessionName));
+  if (view.branch) parts.push(theme.fg("success", view.branch));
+  if (view.context) {
+    const auto = view.autoCompact ? theme.fg("dim", " ⟲") : "";
+    parts.push(contextText(view.context, theme) + auto);
+  }
+  const left = parts.join(theme.fg("dim", " · "));
+  const right = theme.fg("dim", view.statuses.join(" "));
+  if (!right) return [truncateToWidth(left, width, "…")];
+  const gap = width - visibleWidth(left) - visibleWidth(right);
+  if (gap >= 2) return [left + " ".repeat(gap) + right];
+  return [truncateToWidth(left, width, "…"), truncateToWidth(right, width, "…")];
+}
+
+function mountStatusBar(pi: ExtensionAPI, ctx: ExtensionContext): void {
+  // getContextUsage scans the session and the footer renders every frame.
+  // Every append moves the leaf, so it only changes with the leaf or the model.
+  let cached: { key: string; usage: ContextUsage | undefined } | null = null;
+  const contextUsage = () => {
+    const key = `${ctx.sessionManager.getLeafId()}|${ctx.model?.provider}/${ctx.model?.id}`;
+    if (cached?.key !== key) cached = { key, usage: ctx.getContextUsage() };
+    return cached.usage;
+  };
+  ctx.ui.setFooter((_tui, theme, footerData) => ({
+    render: (width) =>
+      statusBarLines(
+        {
+          model: ctx.model?.name ?? "Belum ada model",
+          thinking: ctx.model?.reasoning ? pi.getThinkingLevel() : undefined,
+          folder: basename(ctx.cwd),
+          sessionName: ctx.sessionManager.getSessionName(),
+          branch: footerData.getGitBranch(),
+          context: contextUsage(),
+          autoCompact: pi.getSettings().compaction?.enabled !== false,
+          statuses: [...footerData.getExtensionStatuses().entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([, text]) => text.replace(/\s+/g, " ").trim()),
+        },
+        width,
+        theme,
+      ),
+    invalidate() {},
+  }));
+}
+
 function keyTips(): [string, string][] {
   return [
     ["/", "untuk perintah"],
@@ -351,6 +427,7 @@ export default function brand(pi: ExtensionAPI) {
 
   pi.on("session_start", (event, ctx) => {
     if (ctx.mode !== "tui") return;
+    mountStatusBar(pi, ctx);
     const view: WelcomeView = {
       version: readVersion(),
       model: ctx.model?.name ?? "Belum ada model",
