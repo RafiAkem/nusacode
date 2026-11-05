@@ -7,8 +7,10 @@
  * meter.ts fetches each session. With no cache yet, models.json is the fallback.
  *
  * The catalog has no capability fields, so every model gets the same limits as
- * the models.json entry: text input, no thinking parameter, 16384 output tokens.
- * Rupiah costs stay in meter.ts, so pi's dollar cost stays zero.
+ * the models.json entry: text input, 16384 output tokens. DeepSeek models are the
+ * ones verified to answer with `reasoning_content` and accept the gateway's
+ * `thinking` / `reasoning_effort` parameters, so they alone are registered as
+ * reasoning models. Rupiah costs stay in meter.ts, so pi's dollar cost stays zero.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -21,6 +23,8 @@ const BASE_URL = "https://api.nusagate.com/v1";
 const CACHE_FILE = "nusagate-models.json";
 const MAX_OUTPUT_TOKENS = 16_384;
 const DEFAULT_CONTEXT_WINDOW = 128_000;
+/** Reasoning models on the gateway: they take `thinking` and return `reasoning_content`. */
+const REASONING = /^deepseek-/;
 
 export type CatalogModel = { id: string; name: string; contextWindow: number };
 
@@ -67,7 +71,9 @@ function register(pi: ExtensionAPI, models: CatalogModel[]): void {
     models: models.map(({ id, name, contextWindow }) => ({
       id,
       name,
-      reasoning: false,
+      ...(REASONING.test(id)
+        ? { reasoning: true, compat: { thinkingFormat: "deepseek" as const, supportsReasoningEffort: true } }
+        : { reasoning: false }),
       input: ["text"],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow,

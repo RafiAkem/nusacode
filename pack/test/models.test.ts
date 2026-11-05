@@ -80,3 +80,11 @@ test("a corrupt cache falls back quietly", (t) => {
   const { registered } = load(t, { models: "nope" });
   assert.equal(registered.length, 0);
 });
+
+test("DeepSeek models are registered as reasoning models and the rest are not", (t) => {
+  const { registered } = load(t, { models: [row("deepseek-v4.1-flash"), row("kimi-k3")] });
+  const byId = Object.fromEntries(registered[0].models.map((model) => [model.id, model as Record<string, unknown>]));
+  assert.equal(byId["deepseek-v4.1-flash"].reasoning, true);
+  assert.deepEqual(byId["deepseek-v4.1-flash"].compat, { thinkingFormat: "deepseek", supportsReasoningEffort: true });
+  assert.equal(byId["kimi-k3"].reasoning, false);
+});

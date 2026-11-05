@@ -7,6 +7,8 @@
       "models": [
         {
           "id": "deepseek-v4.1-flash",
+          "reasoning": true,
+          "compat": { "thinkingFormat": "deepseek", "supportsReasoningEffort": true },
           "contextWindow": 1048576,
           "maxTokens": 16384
         }
