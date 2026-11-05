@@ -1,7 +1,12 @@
-import { test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { glowIntensity, renderSplash, runSetupSplash, SETUP_SPLASH_MS } from "../lib/splash.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+
+// The scenes' timers are unref'd so they can't hold the CLI open. Without this, Node 22
+// sees an empty event loop while a test awaits one and cancels the test.
+const keepAlive = setInterval(() => {}, 1_000);
+after(() => clearInterval(keepAlive));
 
 const ANSI = /\x1b\[[0-9;]*m/g;
 const plain = (lines: string[]): string[] => lines.map((line) => line.replace(ANSI, ""));
