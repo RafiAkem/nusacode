@@ -67,6 +67,7 @@ what that cost. The session and its costs are real; only the balance is sample d
 | `/usage` | Show session cost, tokens, cache hit rate, speed and balance |
 | `/topup` | Show your balance and a top-up link |
 | `/model` | Switch model |
+| `/thinking` | Pick how hard the model thinks, or `/thinking high`. `shift+tab` cycles the levels. Only DeepSeek models support it |
 | `/skills` | List learned skills; `/skills delete <name>` removes one |
 | `/import-config` | Import skills and instructions from other coding agents |
 | `/setup` | Run first-time setup again |
@@ -187,7 +188,7 @@ once, and each times out after 10 minutes.
 
 The `/model` list comes from NusaGate's catalog and is cached in `nusagate-models.json`, so a saved model still
 resolves at startup before the network finishes. The catalog has no capability fields, so every model currently
-uses the same limits: text input, no thinking parameter, and 16,384 output tokens.
+uses the same limits: text input and 16,384 output tokens. DeepSeek models are registered as reasoning models, so `/thinking` works on them; other models have no thinking levels.
 
 </details>
 
