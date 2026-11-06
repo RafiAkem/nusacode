@@ -228,5 +228,5 @@ test("the page script is valid JavaScript", async () => {
   const source = /<script nonce="__NONCE__">([\s\S]*?)<\/script>/.exec(REMOTE_PAGE)?.[1];
   assert.ok(source && source.length > 500);
   assert.doesNotThrow(() => new Script(source), "the inline script should parse");
-  assert.ok(source.includes('split("```")'), "code fences are split on three backticks");
+  assert.ok(source.includes("String.fromCharCode(96)"), "code fences are split on three backticks");
 });

@@ -20,9 +20,11 @@ export type RemoteState = {
   sessionName: string | undefined;
 };
 
-const MAX_ITEMS = 200;
+export type Limits = { maxItems: number; maxText: number };
+export const LOCAL_LIMITS: Limits = { maxItems: 200, maxText: 20_000 };
+/** The relay carries every update, so it gets less per message. */
+export const RELAY_LIMITS: Limits = { maxItems: 60, maxText: 6_000 };
 const MAX_RESULT = 600;
-const MAX_TEXT = 20_000;
 
 type Block = { type?: string; text?: string; name?: string; id?: string; arguments?: unknown };
 type MessageLike = { role?: string; content?: unknown; toolCallId?: string; toolName?: string; isError?: boolean };
@@ -50,18 +52,18 @@ export function targetOf(args: unknown): string {
 }
 
 /** One session message as items. Thinking blocks are left out. */
-export function itemsOf(message: MessageLike | undefined): Item[] {
+export function itemsOf(message: MessageLike | undefined, maxText = LOCAL_LIMITS.maxText): Item[] {
   if (!message) return [];
   if (message.role === "user") {
     const text = textOf(message.content);
-    return text ? [{ kind: "user", text: text.slice(0, MAX_TEXT) }] : [];
+    return text ? [{ kind: "user", text: text.slice(0, maxText) }] : [];
   }
   if (message.role === "toolResult") {
     return [{ kind: "result", id: message.toolCallId ?? "", name: message.toolName ?? "tool", isError: message.isError === true, text: textOf(message.content).slice(0, MAX_RESULT) }];
   }
   if (message.role === "assistant") {
     return blocksOf(message.content).flatMap((block): Item[] => {
-      if (block.type === "text" && block.text?.trim()) return [{ kind: "assistant", text: block.text.slice(0, MAX_TEXT) }];
+      if (block.type === "text" && block.text?.trim()) return [{ kind: "assistant", text: block.text.slice(0, maxText) }];
       if (block.type === "toolCall") return [{ kind: "tool", id: block.id ?? "", name: block.name ?? "tool", target: targetOf(block.arguments) }];
       return [];
     });
@@ -77,11 +79,11 @@ export function buildState(input: {
   model: string;
   cwd: string;
   sessionName: string | undefined;
-}): RemoteState {
-  const items = input.entries.flatMap((entry) => (entry.type === "message" ? itemsOf(entry.message) : []));
+}, limits: Limits = LOCAL_LIMITS): RemoteState {
+  const items = input.entries.flatMap((entry) => (entry.type === "message" ? itemsOf(entry.message, limits.maxText) : []));
   return {
-    items: items.slice(-MAX_ITEMS),
-    live: itemsOf(input.live),
+    items: items.slice(-limits.maxItems),
+    live: itemsOf(input.live, limits.maxText),
     running: input.running,
     busyWith: input.busyWith,
     model: input.model,

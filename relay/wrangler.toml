@@ -1,0 +1,14 @@
+# The NusaCode relay. Deploy once with:  npx wrangler deploy
+# See relay/README.md.
+name = "nusacode-relay"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "RelayRoom"
+
+# SQLite-backed Durable Objects are the kind the free plan allows.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RelayRoom"]

@@ -61,20 +61,25 @@ what that cost. The session and its costs are real; only the balance is sample d
 
 ## Remote control
 
-`/remote` starts a small web page for the session you have open. Open its link, or scan the QR code with your
-phone, to watch the conversation live, send messages, and stop the agent from a browser.
+`/remote` starts a web page for the session you have open. Scan its QR code with your phone to watch the
+conversation live, send messages, and stop the agent.
 
-| Command | Listens on | Who can reach it |
+| Command | How it connects | Who can reach it |
 | --- | --- | --- |
-| `/remote` | Your [Tailscale](https://tailscale.com) address if you have one, else this computer | Only your own devices, over Tailscale |
+| `/remote relay <address>` | Through [your relay](relay/README.md): nothing to open or install, works from anywhere | Anyone with the link; end-to-end encrypted |
+| `/remote tailscale` | Your [Tailscale](https://tailscale.com) address | Only your own devices |
 | `/remote lan` | Your Wi-Fi address | Anything on that network, over plain HTTP. Trusted networks only |
 | `/remote local` | This computer only | This computer |
+| `/remote` | The best of those: the relay if you set one up, else Tailscale, else this computer | |
 | `/remote status`, `/remote stop` | | |
 
-- Every request needs the random token in the link, so a guessed address is not enough.
-- Behind your own tunnel or proxy, set `NUSACODE_REMOTE_URL` (for example `https://my-pc.tail1234.ts.net`) and the link and QR code will use it.
+- **The relay** is a small server you deploy once on Cloudflare's free plan. NusaCode connects out to it, so
+  there is nothing to open on your computer. The key is in the part of the link after the `#`, which is never
+  sent to the relay, so it can't read your session. Set it up with the [relay guide](relay/README.md).
+- Anyone who has the full link can read the session and send it messages, so keep it private.
 - The page cannot answer questions or dialogs that are open in the terminal, such as the `ask` panel.
-- `nusacode --remote` starts it at launch. `NUSACODE_REMOTE_PORT` sets the port (default 7842).
+- `nusacode --remote` starts it at launch. `NUSACODE_REMOTE_PORT` sets the local port (default 7842), and
+  `NUSACODE_REMOTE_URL` points the link at your own tunnel.
 
 ## Commands
 

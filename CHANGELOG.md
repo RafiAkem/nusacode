@@ -11,7 +11,7 @@ First public release.
 - An `ask` tool that shows a multiple-choice questions panel.
 - Image attachments: paste an image or a file path, preview it above the prompt box, and enlarge it with `alt+i`.
 - `/thinking` levels for DeepSeek models.
-- `/remote` to watch and steer a session from a browser or phone, with a QR code, over Tailscale, your local network or this computer only.
+- `/remote` to watch and steer a session from a phone or browser, with a QR code: through an end-to-end encrypted relay you deploy once on Cloudflare, over Tailscale, your local network, or this computer only.
 - Learned skills, subagents through the `task` tool, and token-saving defaults.
 - Dark and light themes, and a startup screen.
 
