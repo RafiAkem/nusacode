@@ -1,8 +1,17 @@
 name: Publish
 
-# Every push to main publishes a new version to npm.
-# The version is the next patch after what npm has, unless package.json
-# already says something higher (bump it there for a minor or major release).
+# Every push to main that changes something users receive publishes a new version to npm,
+# tags it, and creates a GitHub Release.
+#
+# - Nothing is published when only docs, tests or CI changed since the last release tag.
+#   What counts as "shipped" comes from the `files` list in package.json (scripts/release.cjs).
+# - The version is the next patch after what npm has, unless package.json already says something
+#   higher: bump it there, and add a `## [x.y.z]` section to CHANGELOG.md, for a minor or major release.
+# - A release with a CHANGELOG.md section for its version uses that as its notes. Any other
+#   release gets notes generated from the pull requests and commits since the last one.
+# - The tag points at the commit that was published. That commit still says the old version in
+#   package.json, because the bump is made on the runner only.
+#
 # Needs an npm granular token that can publish nusacode, saved as the repo secret NPM_TOKEN.
 on:
   push:
@@ -13,9 +22,14 @@ on:
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/pull_request_template.md"
   workflow_dispatch:
+    inputs:
+      force:
+        description: Publish even when nothing that ships has changed since the last release
+        type: boolean
+        default: false
 
 permissions:
-  contents: read
+  contents: write # the release tag and the GitHub Release
   id-token: write # lets npm record where the package was built (provenance)
 
 # One publish at a time, so two quick pushes never pick the same version.
@@ -28,24 +42,74 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the last release tag, and what changed since
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
           cache: npm
           registry-url: https://registry.npmjs.org
-      - run: npm ci
+      - name: See what changed since the last release
+        id: changes
+        env:
+          FORCE: ${{ inputs.force }}
+        run: |
+          last=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
+          if [ "$FORCE" = "true" ]; then
+            echo "Forced: publishing."
+            publish=true
+          elif [ -z "$last" ]; then
+            echo "No release tag yet: publishing."
+            publish=true
+          else
+            set +e
+            changed=$(git diff --name-only "$last" HEAD | node scripts/release.cjs publishable)
+            code=$?
+            set -e
+            if [ "$code" = "0" ]; then
+              echo "Changed since $last:"
+              echo "$changed"
+              publish=true
+            elif [ "$code" = "1" ]; then
+              echo "Nothing that ships has changed since $last: not publishing."
+              publish=false
+            else
+              echo "::error::scripts/release.cjs failed, so it is not safe to guess"
+              exit 1
+            fi
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+      - name: Install
+        if: steps.changes.outputs.publish == 'true'
+        run: npm ci
       - name: Pick the next version
+        if: steps.changes.outputs.publish == 'true'
+        id: version
         run: |
           repo=$(node -p "require('./package.json').version")
           live=$(npm view nusacode version 2>/dev/null || echo 0.0.0)
-          next=$(node -e '
-            const [r, l] = process.argv.slice(1).map(v => v.split(".").map(Number));
-            const higher = r[0] - l[0] || r[1] - l[1] || r[2] - l[2];
-            console.log(higher > 0 ? r.join(".") : [l[0], l[1], l[2] + 1].join("."));
-          ' "$repo" "$live")
+          next=$(node scripts/release.cjs next "$repo" "$live")
           echo "npm has $live, package.json has $repo, publishing $next"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
           npm version "$next" --no-git-tag-version --allow-same-version
       # prepublishOnly runs the tests, prepack builds vendor/pi
-      - run: npm publish --provenance --access public
+      - name: Publish to npm
+        if: steps.changes.outputs.publish == 'true'
+        run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Tag and create the GitHub Release
+        if: steps.changes.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.next }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "NusaCode $VERSION"
+          git push origin "v$VERSION"
+          if node scripts/release.cjs notes "$VERSION" > notes.md; then
+            gh release create "v$VERSION" --title "v$VERSION" --notes-file notes.md --verify-tag
+          else
+            gh release create "v$VERSION" --title "v$VERSION" --generate-notes --verify-tag
+          fi

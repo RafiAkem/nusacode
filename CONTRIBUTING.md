@@ -96,8 +96,14 @@ breaking changes, run the tests, and run a real session, including a `task` call
 
 Commit messages are short imperative sentences, such as `Fix the balance row on narrow terminals`.
 
-Every push to `main` that changes code is published to [npm](https://www.npmjs.com/package/nusacode) as the next
-patch version. For a minor or major release, raise `version` in `package.json` in the same change.
+Every push to `main` that changes something users receive is published to [npm](https://www.npmjs.com/package/nusacode)
+as the next patch version, tagged `vX.Y.Z`, and given a [GitHub Release](https://github.com/RafiAkem/nusacode/releases).
+Changes to docs, tests or CI alone don't release anything. What counts as shipped is the `files` list in `package.json`.
+
+For a minor or major release, raise `version` in `package.json` and add a `## [x.y.z]` section to `CHANGELOG.md` in the
+same change: that section becomes the release notes. Other releases get notes generated from the commits since the last
+one. To publish without a code change, run the Publish workflow by hand and tick "force". The decisions are in
+`scripts/release.cjs`, which has tests.
 
 ## Reporting bugs
 
