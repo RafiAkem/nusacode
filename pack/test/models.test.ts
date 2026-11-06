@@ -88,3 +88,32 @@ test("DeepSeek models are registered as reasoning models and the rest are not", 
   assert.deepEqual(byId["deepseek-v4.1-flash"].compat, { thinkingFormat: "deepseek", supportsReasoningEffort: true });
   assert.equal(byId["kimi-k3"].reasoning, false);
 });
+
+test("the user's capabilities file sets vision and output limits, and /model marks vision models", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "nusacode-models-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(
+    join(dir, "model-capabilities.json"),
+    JSON.stringify({ "kimi-*": { vision: true, maxOutput: 8192 }, "kimi-k3.1-pro": { maxOutput: 32_768 } }),
+  );
+  writeFileSync(join(dir, "nusagate-models.json"), JSON.stringify({ models: [row("kimi-k3", "Kimi K3", 1_000_000), row("kimi-k3.1-pro", "Kimi K3.1 Pro", 1_000_000), row("glm-5.3", "GLM 5.3", 1_000_000)] }));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  t.after(() => {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  });
+  const registered: { models: Record<string, unknown>[] }[] = [];
+  models({
+    registerProvider: (_name: string, config: { models: Record<string, unknown>[] }) => registered.push(config),
+    events: { on: () => {} },
+  } as unknown as ExtensionAPI);
+  const byId = Object.fromEntries(registered[0].models.map((model) => [model.id, model]));
+  assert.equal(byId["kimi-k3"].name, "Kimi K3 (vision)");
+  assert.deepEqual(byId["kimi-k3"].input, ["text", "image"]);
+  assert.equal(byId["kimi-k3"].maxTokens, 8192);
+  assert.equal(byId["kimi-k3.1-pro"].maxTokens, 32_768);
+  assert.equal(byId["glm-5.3"].name, "GLM 5.3");
+  assert.deepEqual(byId["glm-5.3"].input, ["text"]);
+  assert.equal(byId["glm-5.3"].maxTokens, 16_384);
+});

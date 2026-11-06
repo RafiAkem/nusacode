@@ -6,8 +6,10 @@
  * cache file while this extension loads, and refreshed from the catalog that
  * meter.ts fetches each session. With no cache yet, models.json is the fallback.
  *
- * The catalog has no capability fields, so every model gets the same limits as
- * the models.json entry: text input, 16384 output tokens. DeepSeek models are the
+ * The catalog has no capability fields, so what a model can take and give comes from
+ * lib/model-capabilities.ts: built-in facts plus the user's model-capabilities.json.
+ * Without an entry a model gets the models.json defaults: text input, 16384 output
+ * tokens. Models that take images are marked "(vision)" in /model. DeepSeek models are the
  * ones verified to answer with `reasoning_content` and accept the gateway's
  * `thinking` / `reasoning_effort` parameters, so they alone are registered as
  * reasoning models. Rupiah costs stay in meter.ts, so pi's dollar cost stays zero.
@@ -17,16 +19,14 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { CATALOG_CHANNEL } from "./meter.ts";
 import { agentDir } from "../lib/home.ts";
+import { readCapabilities, resolveCapabilities } from "../lib/model-capabilities.ts";
 
 const PROVIDER = "nusagate";
 const BASE_URL = "https://api.nusagate.com/v1";
 const CACHE_FILE = "nusagate-models.json";
-const MAX_OUTPUT_TOKENS = 16_384;
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 /** Reasoning models on the gateway: they take `thinking` and return `reasoning_content`. */
 const REASONING = /^deepseek-/;
-/** Models known to accept image input. The catalog does not say, so this is an explicit list. */
-const VISION = /^deepseek-v4.1-flash$/;
 
 export type CatalogModel = { id: string; name: string; contextWindow: number };
 
@@ -65,22 +65,26 @@ function writeCache(dir: string, models: CatalogModel[]): void {
 }
 
 function register(pi: ExtensionAPI, models: CatalogModel[]): void {
+  const overrides = readCapabilities(homeDir());
   pi.registerProvider(PROVIDER, {
     name: "NusaGate",
     baseUrl: BASE_URL,
     apiKey: "$NUSAGATE_API_KEY",
     api: "openai-completions",
-    models: models.map(({ id, name, contextWindow }) => ({
-      id,
-      name,
-      ...(REASONING.test(id)
-        ? { reasoning: true, compat: { thinkingFormat: "deepseek" as const, supportsReasoningEffort: true } }
-        : { reasoning: false }),
-      input: VISION.test(id) ? ["text", "image"] : ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow,
-      maxTokens: MAX_OUTPUT_TOKENS,
-    })),
+    models: models.map((model) => {
+      const caps = resolveCapabilities(model.id, model.contextWindow, overrides);
+      return {
+        id: model.id,
+        name: caps.vision ? `${model.name} (vision)` : model.name,
+        ...(REASONING.test(model.id)
+          ? { reasoning: true, compat: { thinkingFormat: "deepseek" as const, supportsReasoningEffort: true } }
+          : { reasoning: false }),
+        input: caps.vision ? ["text", "image"] : ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: caps.contextWindow,
+        maxTokens: caps.maxOutput,
+      };
+    }),
   });
 }
 

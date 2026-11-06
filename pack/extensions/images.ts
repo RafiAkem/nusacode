@@ -252,7 +252,7 @@ export default function images(pi: ExtensionAPI) {
     const files = ids.flatMap((id) => state.attachments.get(id) ?? []);
     if (files.length === 0) return { action: "continue" as const };
     if (ctx.model && !ctx.model.input.includes("image")) {
-      ctx.ui.notify(`${ctx.model.name ?? ctx.model.id} can't see images, so only your text was sent. Switch model with /model.`, "warning");
+      ctx.ui.notify(`${ctx.model.name ?? ctx.model.id} can't see images, so only your text was sent. Switch model with /model: the ones that can are marked (vision).`, "warning");
       state.clear();
       return { action: "transform" as const, text, images: event.images };
     }
