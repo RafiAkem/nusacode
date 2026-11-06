@@ -1,201 +1,103 @@
 /**
- * `/setup` splash: the N is drawn by a light that traces the letterform, a comet
- * crosses the ring around it once, then the mark settles into a slow shimmer.
+ * The opening scene of `/setup`, built around NusaGate's mark: the N with a halo
+ * of light around it.
  *
- * No water, no starfield, no full-screen gradient sweep. The letter is the
- * animation: cells appear along a diagonal front with a lit leading edge, the ring
- * is the same halo that orbits the N in the welcome header, and the settled state
- * breathes rather than loops a scene.
+ * Scattered specks gather into the N. Then a light draws the halo: it sets off from
+ * the left end of the ring, runs along the near arc in front of the letter, swings
+ * round behind it and back, and leaves the ring lit behind it. The ring swells
+ * once, the wordmark decodes underneath, and while the scene holds a soft glint
+ * keeps circling the ring.
  *
- * Behind all of it sits a soft radial glow: a single light source behind the mark,
- * painted as cell background colour rather than characters, so the splash reads as
- * a designed frame instead of a scrolling scene. It breathes very slightly, which
- * keeps the settled state alive without anything moving.
+ * The halo follows the logo on nusagate.com: a flat ellipse tilted so it rises to
+ * the right, crossing the middle of the letter. Its near half passes in front of the
+ * N, its far half behind, and it burns brightest on the right, by the green stroke.
  *
- * Every frame is a pure function of (size, elapsed), so the whole thing is testable
- * without a terminal — see pack/test/splash.test.ts.
+ * The scene sits on the terminal's own background. An earlier version painted a
+ * glow behind the mark as cell background colour, so every animated row was a full
+ * repaint, and the renderer's erase-to-default before each rewrite flickered as
+ * black strips on terminals without synchronized output. With no painted background
+ * an erased row looks exactly like a drawn one, so motion is free.
+ *
+ * Every frame is a pure function of (size, elapsed), so the scene is testable
+ * without a terminal: see pack/test/splash.test.ts.
  */
-import type { Color, Component, TUI } from "@earendil-works/pi-tui";
-import { backgroundAnsi, foregroundAnsi, mixColors, parseColor, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { ExtensionContext, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import type { Color } from "@earendil-works/pi-tui";
+import { foregroundAnsi, mixColors, parseColor } from "@earendil-works/pi-tui";
 import { LOGO, GLYPHS as LOGO_GLYPHS, SHADES as LOGO_SHADES } from "../extensions/brand.ts";
 
-export const SETUP_SPLASH_MS = 2_600;
-export const SPLASH_TICK_MS = 40;
-
-/** Timing overrides, for tests and for anyone who wants a shorter wait. */
-export interface SetupSplashOptions {
-  readonly durationMs?: number;
-  readonly tickMs?: number;
-}
-
-const RESET = "\x1b[0m";
-
-/** Palette: the deep end of the N's green, its accent, and the halo core. */
-const DEEP = parseColor("#0c6e4a");
-const ACCENT = parseColor("#4ed899");
-const GLOW = parseColor("#ecfff6");
-const FAINT = parseColor("#7c9a8d");
-const TRAIL = parseColor("#1a7a55");
-
-/** The letter is fully drawn by this point; everything after is settle. */
-const REVEAL_MS = 950;
-const COMET_START_MS = 430;
-const COMET_MS = 1_450;
-const WORD_START_MS = 940;
-const WORD_STEP_MS = 42;
-const HINT_START_MS = 1_500;
-
-/** Below this the scene drops its ring and keeps the letter, the word and the hint. */
-const MIN_SCENE_WIDTH = 44;
-const MIN_SCENE_HEIGHT = 16;
-
-/** Comet trail ramp, faint to the head. */
-const TRAIL_RAMP = ".-~=*";
-
-/** Clearance between the letter's box and the ring, in cells. */
-const ORBIT_PAD_X = 4.5;
-/** Ring thickness in cells, measured radially. */
-const ORBIT_THICKNESS = 0.75;
-/** How far the ring leans: the projection of a tilted circle, in cells. */
-const ORBIT_TILT = 1.2;
-/** Fraction of the ring the comet's tail covers behind the head. */
-const TAIL_FRACTION = 0.45;
-/** The orbit path shows itself before the comet arrives, so the motion reads. */
-const RING_SHOW_MS = 240;
-/**
- * A last beat before the splash goes away: the ring swells once, then everything
- * fades to the background colour. Without it the loading screen just stops and the
- * next prompt appears, which reads as a crash rather than a finish.
- */
-const PULSE_START_MS = 1_880;
-const PULSE_MS = 300;
-/** Length of the fade to background at the very end. */
-const FADE_MS = 240;
-
-const WORDMARK = "NusaCode";
-
-/**
- * Background: a soft radial glow behind the mark, painted as cell *background colour*
- * rather than characters. Nothing falls, nothing scrolls — it is light, not a scene.
- */
-const BG_EDGE = parseColor("#061a12");
-const BG_CORE = parseColor("#0f3f2c");
-/** How far the glow reaches, as a fraction of the terminal, so it scales with the frame. */
-const GLOW_SPREAD_X = 0.40;
-const GLOW_SPREAD_Y = 0.48;
-/** Higher = tighter core, faster falloff. */
-const GLOW_FALLOFF = 1.15;
-/**
- * The glow is deliberately static. An animated background changes every cell every
- * tick, which makes the renderer treat every row as dirty: it erases each one with
- * `\x1b[2K` (default background, i.e. black) and rewrites it, and on terminals that
- * do not honour synchronized updates that reads as black strips flickering at the
- * frame rate. A still background means a settled splash repaints nothing at all.
- */
-/**
- * How many shades the gradient is quantised to. Each level costs one SGR run per
- * row segment, so this is the knob that trades smoothness against how much escape
- * traffic the terminal has to swallow every frame.
- */
-const GLOW_STEPS = 20;
-/** Halftone lattice over the glow: a regular grid, so it reads as texture. */
-const DOT_STEP_X = 3;
-const DOT_OFFSET_X = 1;
-const DOT_STEP_Y = 2;
-const DOT_GLYPH = ".";
-/** Dots only exist where the light reaches; past this they would be pure noise. */
-const DOT_MIN_GLOW = 0.3;
+/** The wizard moves on after this, unless a key gets there first. */
+export const SPLASH_MS = 3_000;
+/** Everything has arrived by this point; after it only the halo's glint moves. */
+export const SPLASH_SETTLED_MS = 2_250;
 
 type Mode = Parameters<typeof foregroundAnsi>[1];
 
-/**
- * Strength of the glow at one cell, 0..1. Pure in (position, size, time): the frame
- * stays reproducible, which is what lets the tests assert on it.
- */
-export function glowIntensity(
-  x: number,
-  y: number,
-  centerX: number,
-  centerY: number,
-  radiusX: number,
-  radiusY: number,
-): number {
-  const nx = (x - centerX) / Math.max(1, radiusX);
-  const ny = (y - centerY) / Math.max(1, radiusY);
-  return Math.exp(-(nx * nx + ny * ny) * GLOW_FALLOFF);
+const RESET = "\x1b[0m";
+const BOLD = "\x1b[1m";
+const BOLD_OFF = "\x1b[22m";
+
+const ACCENT = parseColor("#4ed899");
+const GLOW = parseColor("#ecfff6");
+const SILVER = parseColor("#dfe8e3");
+const FAINT = parseColor("#7c9a8d");
+const TRAIL = parseColor("#1a7a55");
+const DEEP = parseColor("#0c3d2a");
+
+/** Each speck flies for FLIGHT_MS; starts are staggered so the last lands at GATHER_MS. */
+const FLIGHT_MS = 640;
+export const GATHER_MS = 1_050;
+/** How long a landed cell burns white before it cools to its own colour. */
+const FLASH_MS = 160;
+/** Specks fade in from nothing over this long, so frame zero is not a wall of dots. */
+const DUST_FADE_MS = 220;
+
+/** The light that draws the halo: one lap, starting once the letter is whole. */
+export const HALO_START_MS = 1_100;
+const HALO_DRAW_MS = 750;
+/** The ring swells once when the lap closes. */
+const PULSE_START_MS = HALO_START_MS + HALO_DRAW_MS;
+const PULSE_MS = 300;
+/** While the scene holds, a soft glint circles the ring at this pace. */
+const GLINT_START_MS = PULSE_START_MS + PULSE_MS;
+const GLINT_LAP_MS = 1_500;
+/** Length of the light's tail, as an angle along the ring. */
+const TAIL = 1.1;
+const GLINT_TAIL = 1.4;
+/** How far the light spills onto the letter, in cells. */
+const SPILL_RADIUS = 5;
+
+const WORD_NUSA = "Nusa";
+const WORD_CODE = "Code";
+const WORDMARK = WORD_NUSA + WORD_CODE;
+const WORD_START_MS = 1_300;
+const WORD_STEP_MS = 55;
+/** Each letter flickers through noise this long before it resolves. */
+const WORD_SCRAMBLE_MS = 220;
+/** ASCII only: a glyph wider than it measures wraps the row. */
+const SCRAMBLE = "#%*+=-<>/\\|[]{}?!";
+
+export const TAGLINE = "A coding agent that shows what every prompt costs";
+const TAGLINE_START_MS = 1_950;
+const TAGLINE_FADE_MS = 300;
+
+export const SKIP_HINT = "press enter to continue";
+const HINT_START_MS = SPLASH_SETTLED_MS;
+
+/** Below this there is no room for the mark, and the splash keeps just the words. */
+const MIN_ART_WIDTH = 34;
+
+/** Stable noise in [0, 1) for a cell and a channel. */
+function hash(x: number, y: number, seed: number): number {
+  let h = Math.imul(x + 1, 374761393) ^ Math.imul(y + 1, 668265263) ^ Math.imul(seed + 1, 2246822519);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
 }
 
-/** Edge-of-screen green fading to the glow's core green. */
-export function glowColor(intensity: number): Color {
-  return mixColors(BG_EDGE, BG_CORE, Math.min(1, Math.max(0, intensity)), "srgb");
-}
-
-/** A pre-painted background: one glow level per cell, plus the escape for each level. */
-export interface GlowBackground {
-  readonly levels: number[][];
-  readonly levelAnsi: string[];
-}
-
-/**
- * The glow as a grid of quantised levels. Quantising is what keeps the escape count
- * sane: one background escape per level change along a row, not one per cell.
- */
-export function glowBackground(
-  width: number,
-  height: number,
-  centerX: number,
-  centerY: number,
-  radiusX: number,
-  radiusY: number,
-  mode: Mode,
-  fade = 1,
-): GlowBackground {
-  const levelAnsi: string[] = [];
-  for (let level = 0; level <= GLOW_STEPS; level++) {
-    levelAnsi.push(backgroundAnsi(glowColor(level / GLOW_STEPS), mode));
-  }
-  const levels: number[][] = [];
-  for (let y = 0; y < height; y++) {
-    const levelRow: number[] = [];
-    for (let x = 0; x < width; x++) {
-      const strength = glowIntensity(x, y, centerX, centerY, radiusX, radiusY);
-      levelRow.push(Math.round(Math.min(1, Math.max(0, strength)) * GLOW_STEPS * fade));
-    }
-    levels.push(levelRow);
-  }
-  return { levels, levelAnsi };
-}
-
-/** Turn a glyph grid into rows: one background escape per level change, then the cell. */
-export function composeFrame(background: GlowBackground, cells: string[][], width: number, height: number): string[] {
-  const out: string[] = [];
-  for (let y = 0; y < height; y++) {
-    let line = "";
-    let level = -1;
-    for (let x = 0; x < width; x++) {
-      const cellLevel = background.levels[y]![x] as number;
-      if (cellLevel !== level) {
-        line += background.levelAnsi[cellLevel];
-        level = cellLevel;
-      }
-      line += cells[y]![x] || " ";
-    }
-    out.push(`${line}${RESET}`);
-  }
-  return out;
-}
-
-function padLine(line: string, width: number): string {
-  const fitted = truncateToWidth(line, width, "");
-  const missing = width - visibleWidth(fitted);
-  return missing > 0 ? fitted + " ".repeat(missing) : fitted;
-}
-
-function centerLine(text: string, width: number): string {
-  const left = Math.max(0, Math.floor((width - visibleWidth(text)) / 2));
-  return " ".repeat(left) + text;
-}
+const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
+const easeOutCubic = (t: number): number => 1 - (1 - t) ** 3;
+const TAU = 2 * Math.PI;
+const wrap = (angle: number): number => ((angle % TAU) + TAU) % TAU;
 
 /** The mark, doubled in both axes when the terminal has room for it. */
 function markArt(scale: 1 | 2): string[] {
@@ -207,362 +109,295 @@ function markArt(scale: 1 | 2): string[] {
   });
 }
 
-/**
- * Reveal order of one cell, 0..1: a diagonal front sweeping from the bottom-left
- * corner of the letter to the top-right, so the light reads as one stroke.
- */
+/** Position of one cell along the diagonal from the bottom-left of the mark to the top-right, 0..1. */
 function revealOrder(x: number, y: number, width: number, height: number): number {
-  const span = Math.max(1, width - 1 + height - 1);
-  return (x + (height - 1 - y)) / span;
+  return (x + (height - 1 - y)) / Math.max(1, width - 1 + height - 1);
 }
 
-/** One lit cell of the orbit, in screen coordinates. */
-interface OrbitCell {
+interface Layout {
+  art: string[];
+  scale: 1 | 2;
+  artLeft: number;
+  artTop: number;
+  wordRow: number;
+  taglineRow: number;
+  hintRow: number;
+}
+
+function layout(w: number, h: number): Layout {
+  const hintRow = h - 1;
+  // Rows above the hint: the mark (the halo stays inside its rows), a gap, the
+  // wordmark, a gap, the tagline.
+  const usable = Math.max(0, hintRow - 1);
+  const big = markArt(2);
+  let art: string[] = [];
+  let scale: 1 | 2 = 1;
+  // The halo reaches a few cells past the letter on both sides, hence the margins.
+  if (w >= big[0].length + 14 && usable >= big.length + 5) {
+    art = big;
+    scale = 2;
+  } else if (w >= Math.max(MIN_ART_WIDTH, LOGO[0].length + 10) && usable >= LOGO.length + 4) {
+    art = LOGO;
+  }
+  const block = art.length > 0 ? art.length + 4 : 3;
+  const top = Math.max(0, Math.floor((usable - block) / 2));
+  const wordRow = art.length > 0 ? top + art.length + 1 : top;
+  return {
+    art,
+    scale,
+    artLeft: art.length > 0 ? Math.floor((w - art[0].length) / 2) : 0,
+    artTop: top,
+    wordRow,
+    taglineRow: wordRow + 2,
+    hintRow,
+  };
+}
+
+/** The halo's ellipse, in cell coordinates where a row's centre is its index. */
+export interface HaloShape {
+  cx: number;
+  cy: number;
+  rx: number;
+  ry: number;
+  /** How far the right end rises above the left, halved. */
+  tilt: number;
+}
+
+export function haloShape(artLeft: number, artTop: number, artWidth: number, artHeight: number, scale: 1 | 2): HaloShape {
+  return {
+    cx: artLeft + artWidth / 2 - 0.5,
+    // A touch above the letter's middle, where the ring crosses it in the logo.
+    cy: artTop + (artHeight - 1) * 0.48,
+    rx: artWidth / 2 + 2.5 * scale,
+    ry: 1.25 * scale,
+    tilt: 1.8 * scale,
+  };
+}
+
+/** A point on the halo at angle θ. θ = 0 is the right end, and sin θ > 0 is the near arc. */
+function haloPoint(shape: HaloShape, theta: number): { x: number; y: number } {
+  return {
+    x: shape.cx + shape.rx * Math.cos(theta),
+    y: shape.cy + shape.ry * Math.sin(theta) - shape.tilt * Math.cos(theta),
+  };
+}
+
+/** One cell of the ring. */
+interface HaloCell {
   x: number;
   y: number;
-  intensity: number;
-  /** Comet brightness on this cell, 0 for the plain ring track. */
-  trail: number;
-  /** The near half of the ring passes in front of the letter. */
+  theta: number;
+  glyph: string;
   front: boolean;
-  /** The comet's head gets its own glyph, so the eye can follow it. */
-  head: boolean;
 }
 
-/** The closing swell, 0..1: one sine hump when the splash is finishing. */
+/**
+ * The ring as cells. It is traced at half-row resolution: a point in the upper half
+ * of a cell draws `-`, one in the lower half draws `_`, so a slanted ring steps
+ * smoothly instead of jumping a whole row at a time. The ends, where the ring turns,
+ * are `(` and `)`.
+ */
+export function haloCells(shape: HaloShape): HaloCell[] {
+  const samples = Math.max(360, Math.ceil(TAU * shape.rx * 4));
+  const cells = new Map<string, HaloCell>();
+  for (let i = 0; i < samples; i++) {
+    const theta = (i / samples) * TAU;
+    const { x, y } = haloPoint(shape, theta);
+    const column = Math.round(x);
+    const half = Math.round(y * 2);
+    const row = Math.floor(half / 2);
+    const cos = Math.cos(theta);
+    const glyph = Math.abs(cos) > 0.985 ? (cos > 0 ? ")" : "(") : half % 2 === 0 ? "-" : "_";
+    const front = Math.sin(theta) > 0;
+    const key = `${column},${row}`;
+    const seen = cells.get(key);
+    // Where the arcs meet in one cell, the near one wins: it is in front.
+    if (seen && (seen.front || !front)) continue;
+    cells.set(key, { x: column, y: row, theta, glyph, front });
+  }
+  return [...cells.values()];
+}
+
+/** Where the drawing light is at `elapsed`, as an angle, or null when it is not out. */
+function lightAngle(elapsed: number): number | null {
+  const p = (elapsed - HALO_START_MS) / HALO_DRAW_MS;
+  if (p < 0 || p > 1) return null;
+  // From the left end (π) along the near arc to the right end (0), then round the back.
+  return Math.PI - TAU * p;
+}
+
 function pulseAt(elapsed: number): number {
   const since = elapsed - PULSE_START_MS;
   return since >= 0 && since <= PULSE_MS ? Math.sin((since / PULSE_MS) * Math.PI) : 0;
 }
 
-/**
- * The ring around the letter plus the comet travelling on it. The path appears
- * before the comet does, at a faint intensity, so the orbit reads as a track
- * rather than a streak that happens to pass by.
- */
-function orbitCells(
-  originX: number,
-  originY: number,
-  artWidth: number,
-  artHeight: number,
-  elapsed: number,
-  width: number,
-  height: number,
-  maxY: number,
-): OrbitCell[] {
-  const centerX = originX + artWidth / 2 - 0.5;
-  const centerY = originY + artHeight / 2 - 0.5;
-  const radiusX = artWidth / 2 + ORBIT_PAD_X;
-  // A terminal cell is about twice as tall as it is wide, so a ring that *looks*
-  // round needs radiusY ≈ radiusX / 2. Clamp it to the rows that actually exist.
-  // Flatter than a circle on purpose: the near arc has to cross the letter's body,
-  // not clear it, or the ring reads as a halo lying behind a cut-out instead of an
-  // orbit going around it.
-  const room = Math.max(2, Math.min(centerY + 1, maxY - centerY));
-  const radiusY = Math.max(2, Math.min(artHeight * 0.26, room));
-
-  const since = elapsed - COMET_START_MS;
-  const active = since >= 0 && since <= COMET_MS;
-  const head = (since / COMET_MS) * 2 * Math.PI - Math.PI / 2;
-  const fade = active ? 1 - Math.max(0, (since - COMET_MS * 0.7) / (COMET_MS * 0.3)) : 0;
-  // One swell of the whole ring as the splash finishes: a visible "done" beat.
-  const pulse = pulseAt(elapsed);
-  const track = elapsed >= RING_SHOW_MS ? 0.24 + 1.0 * pulse : 0;
-  const tail = TAIL_FRACTION * 2 * Math.PI;
-
-  const cells: OrbitCell[] = [];
-  const top = Math.max(0, Math.floor(centerY - radiusY));
-  const bottom = Math.min(height - 1, Math.ceil(centerY + radiusY), maxY - 1);
-  const left = Math.max(0, Math.floor(centerX - radiusX));
-  const right = Math.min(width - 1, Math.ceil(centerX + radiusX));
-  // Rasterise the band cell by cell instead of sampling angles: sampling leaves
-  // gaps and clusters wherever the ellipse is steep, which reads as a dashed mess.
-  for (let y = top; y <= bottom; y++) {
-    for (let x = left; x <= right; x++) {
-      const nx = (x - centerX) / radiusX;
-      const ny = (y - centerY - ORBIT_TILT * nx) / radiusY;
-      // Distance to the ellipse in *cell* units, not in normalised units. The
-      // ellipse is far wider than it is tall, so |d-1| scaled by radiusX alone
-      // reports "far" at the top and bottom of the curve and leaves the ring
-      // dashed there. Dividing by the gradient makes the thickness isotropic.
-      const field = nx * nx + ny * ny - 1;
-      const gradient = 2 * Math.sqrt((nx / radiusX) ** 2 + (ny / radiusY) ** 2);
-      const distance = gradient > 1e-9 ? Math.abs(field) / gradient : Infinity;
-      if (distance > ORBIT_THICKNESS) continue;
-      const angle = (Math.atan2(ny, nx) + 2 * Math.PI) % (2 * Math.PI);
-      let behind = (head - angle) % (2 * Math.PI);
-      if (behind < 0) behind += 2 * Math.PI;
-      const comet = active && behind <= tail ? (1 - behind / tail) ** 2 * fade : 0;
-      // Near arc brighter, far arc dimmer: that contrast plus the front arc being
-      // drawn over the letter is what makes the ring read as passing around it.
-      const intensity = Math.max(comet, ny > 0 ? track * 1.15 : track * 0.8);
-      if (intensity <= 0.05) continue;
-      cells.push({ x, y, intensity, trail: comet, front: ny > 0, head: active && behind < 0.1 && comet > 0.3 });
-    }
+/** Brightness of one ring cell, 0..1, and how far behind the drawing light it is. */
+function haloLight(cell: HaloCell, elapsed: number): { level: number; behind: number | null } {
+  if (elapsed < HALO_START_MS) return { level: 0, behind: null };
+  // The resting ring: brightest on the right, by the green stroke, and on the near arc.
+  const side = (Math.cos(cell.theta) + 1) / 2;
+  const rest = 0.22 + 0.38 * side + (cell.front ? 0.14 : 0);
+  const light = lightAngle(elapsed);
+  if (light !== null) {
+    // How far behind the light this cell is, along the way it travels.
+    const behind = wrap(cell.theta - light);
+    const travelled = Math.PI - light;
+    if (behind > travelled) return { level: 0, behind: null };
+    const comet = Math.max(0, 1 - behind / TAIL) ** 2;
+    return { level: Math.max(rest * 0.85, comet), behind };
   }
-  return cells;
+  const pulse = pulseAt(elapsed);
+  let glint = 0;
+  if (elapsed >= GLINT_START_MS) {
+    const head = Math.PI - TAU * ((elapsed - GLINT_START_MS) / GLINT_LAP_MS);
+    glint = 0.55 * Math.max(0, 1 - wrap(cell.theta - head) / GLINT_TAIL) ** 2;
+  }
+  return { level: clamp01(rest + 0.45 * pulse + glint), behind: null };
 }
 
-function orbitGlyph(cell: OrbitCell): string {
-  // ASCII only, on purpose. The comet head used to be U+2726 (✦), which reports a
-  // width of 1 but is East-Asian-Ambiguous: terminals whose monospace font lacks it
-  // fall back to another font and draw it two cells wide. That one extra cell pushes
-  // the row past the terminal width, wraps it, and the row ends up erased — a black
-  // band across the splash. Nothing here may be wider than it measures.
-  if (cell.head) return "*";
-  // Only the comet uses the density ramp; the ring's own track is always a dot, so
-  // a brighter near arc does not turn into a dashed line of punctuation.
-  if (cell.trail <= 0.06) return "·";
-  const index = Math.min(TRAIL_RAMP.length - 1, Math.max(0, Math.floor(cell.trail * TRAIL_RAMP.length)));
-  return TRAIL_RAMP[index];
+function haloColor(level: number): Color {
+  return level < 0.6 ? mixColors(TRAIL, ACCENT, level / 0.6, "srgb") : mixColors(ACCENT, GLOW, (level - 0.6) / 0.4, "srgb");
 }
 
-function trailColor(intensity: number): Color {
-  return intensity < 0.5
-    ? mixColors(TRAIL, ACCENT, intensity * 2, "srgb")
-    : mixColors(ACCENT, GLOW, (intensity - 0.5) * 2, "srgb");
-}
-
-/**
- * One frame: the letter revealed up to a moving front, the ring and its comet, the
- * wordmark typing itself out, then a settled shimmer.
- */
+/** One frame of the splash: exactly `height` rows, each exactly `width` columns wide. */
 export function renderSplash(width: number, height: number, elapsedMs: number, mode: Mode = "truecolor"): string[] {
   const w = Math.max(1, width);
   const h = Math.max(1, height);
-  const elapsed = Math.max(0, Math.min(SETUP_SPLASH_MS, elapsedMs));
-  const full = w >= MIN_SCENE_WIDTH && h >= MIN_SCENE_HEIGHT;
-  const art = full ? markArt(w >= 62 && h >= 30 ? 2 : 1) : markArt(1);
-  const artWidth = Math.max(...art.map((line) => visibleWidth(line)));
-  const artHeight = art.length;
-
-  // Full scene: one clear row under the ring for the wordmark, so the orbit owns the
-  // full height. Compact: the hint owns the bottom row and the mark only appears
-  // when the rows above the wordmark can hold it whole.
-  let originY: number;
-  let wordRow: number;
-  let showArt: boolean;
-  if (full) {
-    wordRow = Math.max(artHeight + 3, h - 3);
-    originY = Math.max(0, Math.floor((wordRow - 1 - artHeight) / 2));
-    showArt = true;
-  } else {
-    wordRow = h - 2;
-    const available = Math.max(0, wordRow - 1);
-    showArt = available >= artHeight;
-    originY = showArt ? Math.max(0, Math.floor((available - artHeight) / 2)) : 0;
-  }
-  const originX = Math.floor((w - artWidth) / 2);
-
-  // A steady sweep, not an ease-out: the light should read as one stroke, and an
-  // eased front lands 80% of the letter in the first third of the time.
-  const front = Math.min(1.15, (elapsed / REVEAL_MS) * 1.15);
-  // The letter lifts into place while it is being drawn: three rows of travel,
-  // gone before the wordmark starts, so the two never collide.
-  const lift = Math.round(3 * (1 - Math.min(1, elapsed / 620)));
-  const settled = elapsed >= REVEAL_MS;
-
-  // The last FADE_MS the whole scene sinks into the background colour, so the splash
-  // ends rather than stopping: without it the frame is swapped for the next prompt
-  // mid-breath and the cut reads as a crash.
-  const fadeStart = SETUP_SPLASH_MS - FADE_MS;
-  const fade = elapsed <= fadeStart ? 1 : Math.max(0, 1 - (elapsed - fadeStart) / FADE_MS);
-  const dim = (color: Color): Color => (fade >= 1 ? color : mixColors(BG_EDGE, color, fade, "srgb"));
-
-  // The background is colour, not characters: every cell sits on its slice of the
-  // glow, so the mark is inside light instead of inside noise. The glow is quantised
-  // into GLOW_STEPS levels and a background escape is only emitted when the level
-  // changes along a row: a per-cell escape means ~3000 SGR runs per frame, which
-  // some terminals (Windows Terminal behind ConPTY) drop part of, and the dropped
-  // cells show up as black specks in the gradient.
-  const centerX = originX + artWidth / 2 - 0.5;
-  const centerY = originY + lift + artHeight / 2 - 0.5;
-  const radiusX = Math.max(6, w * GLOW_SPREAD_X);
-  const radiusY = Math.max(4, h * GLOW_SPREAD_Y);
-  const background = glowBackground(w, h, centerX, centerY, radiusX, radiusY, mode, fade);
-  const cells: string[][] = Array.from({ length: h }, () => new Array<string>(w).fill(""));
-  const put = (x: number, y: number, glyph: string, foreground?: string): void => {
+  const elapsed = Math.max(0, Math.min(SPLASH_MS, elapsedMs));
+  const cells: string[][] = Array.from({ length: h }, () => new Array<string>(w).fill(" "));
+  const put = (x: number, y: number, glyph: string, color: Color, bold = false): void => {
     if (y < 0 || y >= h || x < 0 || x >= w) return;
-    cells[y][x] = `${foreground ?? ""}${glyph}`;
+    const text = bold ? `${BOLD}${glyph}${BOLD_OFF}` : glyph;
+    cells[y]![x] = `${foregroundAnsi(color, mode)}${text}`;
   };
 
-  // 1. the far half of the ring, behind the letter
-  const orbit = full ? orbitCells(originX, originY, artWidth, artHeight, elapsed, w, h, wordRow) : [];
+  const { art, scale, artLeft, artTop, wordRow, taglineRow, hintRow } = layout(w, h);
+  const artWidth = art.length > 0 ? art[0].length : 0;
+  const artHeight = art.length;
+  const stagger = GATHER_MS - FLIGHT_MS;
 
-  // 2. the letter, revealed cell by cell with a lit leading edge. Collected first so
-  // the rain field can be told where the mark is and keep its moat.
-  const artCells: { x: number; y: number; glyph: string; color: Color }[] = [];
-  if (showArt) art.forEach((line, row) => {
+  const shape = art.length > 0 ? haloShape(artLeft, artTop, artWidth, artHeight, scale) : null;
+  const ring = shape && elapsed >= HALO_START_MS ? haloCells(shape) : [];
+  const lit = ring.map((cell) => ({ cell, ...haloLight(cell, elapsed) })).filter((c) => c.level > 0.04);
+  // The cell the light is on gets a star, so the eye can follow it round.
+  let headCell: HaloCell | null = null;
+  let nearest = 0.2;
+  for (const { cell, behind } of lit) {
+    if (behind !== null && behind < nearest) {
+      nearest = behind;
+      headCell = cell;
+    }
+  }
+  // The light's head throws a little of itself onto the letter as it passes.
+  const light = lightAngle(elapsed);
+  const head = shape && light !== null ? haloPoint(shape, light) : null;
+
+  const drawRing = (front: boolean): void => {
+    for (const { cell, level } of lit) {
+      if (cell.front !== front) continue;
+      const isHead = cell === headCell;
+      put(cell.x, cell.y, isHead ? "*" : cell.glyph, isHead ? GLOW : haloColor(level));
+    }
+  };
+
+  // 1. The far half of the ring, behind everything.
+  drawRing(false);
+
+  // 2. The mark. Each cell starts as a speck somewhere on screen and eases home,
+  // staggered along the diagonal so the letter assembles as one stroke. Landed
+  // cells are drawn after the specks still in flight, so a speck never covers one.
+  const landed: (() => void)[] = [];
+  art.forEach((line, row) => {
     let column = 0;
     for (const char of line) {
-      const x = originX + column;
-      const y = originY + lift + row;
-      column++;
-      const shades = LOGO_SHADES[char];
+      const col = column++;
       const glyph = LOGO_GLYPHS[char];
-      if (!shades || !glyph || y < 0 || y >= h || x < 0 || x >= w) continue;
-      const order = revealOrder(column - 1, row, artWidth, artHeight);
-      if (order > front) continue;
+      const shades = LOGO_SHADES[char];
+      if (!glyph || !shades) continue;
+      const homeX = artLeft + col;
+      const homeY = artTop + row;
+      const order = revealOrder(col, row, artWidth, artHeight);
+      const delay = order * stagger;
+      const t = clamp01((elapsed - delay) / FLIGHT_MS);
+      if (t < 1) {
+        const startX = Math.floor(hash(col, row, 1) * w);
+        const startY = Math.floor(hash(col, row, 2) * Math.max(1, hintRow));
+        const e = easeOutCubic(t);
+        const x = Math.round(startX + (homeX - startX) * e);
+        const y = Math.round(startY + (homeY - startY) * e);
+        const appear = clamp01(elapsed / DUST_FADE_MS) * (0.35 + 0.65 * hash(col, row, 3));
+        const color = t > 0 ? mixColors(TRAIL, ACCENT, e, "srgb") : mixColors(DEEP, TRAIL, appear, "srgb");
+        put(x, y, t > 0.8 ? "+" : ".", color);
+        continue;
+      }
       const base = mixColors(shades[0], shades[1], artHeight > 1 ? row / (artHeight - 1) : 0, "srgb");
-      // Leading edge of the reveal is white-hot; settled cells only shimmer.
-      const edge = order > front - 0.16 ? 1 - (front - order) / 0.16 : 0;
-      // Static once settled: a shimmer that moves every frame would mark every row
-      // dirty and make the renderer erase/redraw the whole screen 25 times a second.
-      const shimmer = settled ? 0.12 + 0.12 * Math.sin(order * 9) : 0;
-      const lit = Math.min(1, Math.max(edge, shimmer + 0.05));
-      const color = lit > 0.02 ? mixColors(base, GLOW, lit * 0.85, "srgb") : base;
-      artCells.push({ x, y, glyph, color: dim(color) });
+      const flash = clamp01(1 - (elapsed - (delay + FLIGHT_MS)) / FLASH_MS);
+      let spill = 0;
+      if (head) {
+        const distance = Math.hypot(homeX - head.x, (homeY - head.y) * 2);
+        spill = 0.6 * Math.max(0, 1 - distance / (SPILL_RADIUS * scale));
+      }
+      const glowAmount = Math.max(flash, spill);
+      const color = glowAmount > 0 ? mixColors(base, flash >= spill ? GLOW : mixColors(ACCENT, GLOW, 0.5, "srgb"), glowAmount, "srgb") : base;
+      landed.push(() => put(homeX, homeY, glyph, color));
     }
   });
+  for (const draw of landed) draw();
 
-  // 3. a halftone lattice: a regular grid of dim dots that fades out with the glow.
-  // Regular spacing is what keeps it reading as texture instead of falling code.
-  {
-    const occupied = new Set<number>();
-    for (const cell of artCells) occupied.add(cell.y * w + cell.x);
-    for (const cell of orbit) occupied.add(cell.y * w + cell.x);
-    const nearMark = (x: number, y: number): boolean => {
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
-          if (occupied.has(ny * w + nx)) return true;
-        }
+  // 3. The near half of the ring, across the front of the letter: crossing it is
+  // what makes the halo read as going around the N rather than lying behind it.
+  drawRing(true);
+
+  // 4. The wordmark decodes letter by letter: noise first, then the real glyph,
+  // white for a beat as it lands. "Nusa" takes the mark's silver, "Code" its green.
+  if (wordRow < hintRow) {
+    const left = Math.floor((w - WORDMARK.length) / 2);
+    for (let i = 0; i < WORDMARK.length; i++) {
+      const start = WORD_START_MS + i * WORD_STEP_MS;
+      if (elapsed < start) continue;
+      const settledColor = i < WORD_NUSA.length ? SILVER : ACCENT;
+      const since = elapsed - start;
+      if (since < WORD_SCRAMBLE_MS) {
+        const frame = Math.floor(since / 45);
+        const noise = SCRAMBLE[Math.floor(hash(i, frame, 7) * SCRAMBLE.length)];
+        put(left + i, wordRow, noise, mixColors(TRAIL, ACCENT, since / WORD_SCRAMBLE_MS, "srgb"));
+        continue;
       }
-      return false;
-    };
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        if (x % DOT_STEP_X !== DOT_OFFSET_X || y % DOT_STEP_Y !== 0) continue;
-        const strength = glowIntensity(x, y, centerX, centerY, radiusX, radiusY);
-        if (strength < DOT_MIN_GLOW) continue;
-        if (nearMark(x, y)) continue;
-        const color = dim(mixColors(BG_EDGE, ACCENT, 0.08 + 0.34 * strength, "srgb"));
-        put(x, y, DOT_GLYPH, foregroundAnsi(color, mode));
-      }
+      const cool = clamp01((since - WORD_SCRAMBLE_MS) / 180);
+      put(left + i, wordRow, WORDMARK[i], mixColors(GLOW, settledColor, cool, "srgb"), true);
     }
   }
 
-  // 4. the far half of the ring
-  for (const cell of orbit) {
-    if (cell.front) continue;
-    const back = dim(mixColors(TRAIL, ACCENT, Math.min(1, cell.intensity * 1.6)));
-    put(cell.x, cell.y, orbitGlyph(cell), foregroundAnsi(back, mode));
+  // 5. The tagline fades up from the dark once the name is readable.
+  if (taglineRow < hintRow && elapsed >= TAGLINE_START_MS && TAGLINE.length + 2 <= w) {
+    const fade = clamp01((elapsed - TAGLINE_START_MS) / TAGLINE_FADE_MS);
+    const color = mixColors(DEEP, FAINT, fade, "srgb");
+    const left = Math.floor((w - TAGLINE.length) / 2);
+    for (let i = 0; i < TAGLINE.length; i++) if (TAGLINE[i] !== " ") put(left + i, taglineRow, TAGLINE[i], color);
   }
 
-  // 4. the letter
-  for (const cell of artCells) {
-    put(cell.x, cell.y, cell.glyph, foregroundAnsi(cell.color, mode));
-  }
-
-  // 5. the near half of the ring, drawn over the letter: it has to cross in front
-  // of the N, otherwise the ring reads as lying behind a flat cut-out.
-  for (const cell of orbit) {
-    if (!cell.front) continue;
-    // The near arc is lit: it crosses the letter, so it has to out-read it.
-    const near = dim(cell.trail > 0.06 ? trailColor(cell.trail) : mixColors(ACCENT, GLOW, 0.55 + 0.45 * pulseAt(elapsed)));
-    put(cell.x, cell.y, orbitGlyph(cell), foregroundAnsi(near, mode));
-  }
-
-  // 6. the wordmark, one letter at a time
-  const wordLeft = Math.floor((w - WORDMARK.length) / 2);
-  const shown = Math.max(0, Math.floor((elapsed - WORD_START_MS) / WORD_STEP_MS) + 1);
-  for (let i = 0; i < Math.min(shown, WORDMARK.length); i++) {
-    const newest = i === shown - 1 && elapsed < WORD_START_MS + WORDMARK.length * WORD_STEP_MS;
-    put(wordLeft + i, wordRow, WORDMARK[i], foregroundAnsi(dim(newest ? GLOW : ACCENT), mode));
-  }
-
-  // 7. the skip hint, only once the letter is on screen
+  // 6. The hint, only once there is nothing left to wait for.
   if (elapsed >= HINT_START_MS && h > 1) {
-    const hint = "press enter to skip";
-    const hintLeft = Math.max(0, Math.floor((w - hint.length) / 2));
-    for (let i = 0; i < hint.length; i++) {
-      put(hintLeft + i, h - 1, hint[i], foregroundAnsi(dim(FAINT), mode));
+    const hint = SKIP_HINT.length <= w ? SKIP_HINT : "enter";
+    const left = Math.max(0, Math.floor((w - hint.length) / 2));
+    for (let i = 0; i < hint.length; i++) if (hint[i] !== " ") put(left + i, hintRow, hint[i], mixColors(DEEP, FAINT, 0.7, "srgb"));
+  }
+
+  return cells.map((row) => {
+    // Collapse repeated colour escapes: plain spaces carry none, so a row costs
+    // one escape per change of colour rather than one per cell.
+    let line = "";
+    let last = "";
+    for (const cell of row) {
+      const match = /^(\x1b\[[0-9;]*m)(.*)$/s.exec(cell);
+      if (!match) {
+        line += cell;
+        continue;
+      }
+      if (match[1] !== last) line += match[1];
+      last = match[1];
+      line += match[2];
     }
-  }
-
-  return composeFrame(background, cells, w, h);
-}
-
-class SplashComponent implements Component {
-  private readonly tui: TUI;
-  private readonly theme: Theme;
-  private readonly keybindings: KeybindingsManager;
-  private readonly finish: (skipped: boolean) => void;
-  private readonly durationMs: number;
-  private readonly tickMs: number;
-  private readonly startedAt = performance.now();
-  private timer: ReturnType<typeof setInterval> | null = null;
-  private closed = false;
-
-  // Explicit fields, not constructor parameter properties: Node's strip-only
-  // TypeScript loader (used by `npm test`) rejects those.
-  constructor(
-    tui: TUI,
-    theme: Theme,
-    keybindings: KeybindingsManager,
-    finish: (skipped: boolean) => void,
-    options: SetupSplashOptions = {},
-  ) {
-    this.tui = tui;
-    this.theme = theme;
-    this.keybindings = keybindings;
-    this.finish = finish;
-    this.durationMs = options.durationMs ?? SETUP_SPLASH_MS;
-    this.tickMs = options.tickMs ?? SPLASH_TICK_MS;
-    this.timer = setInterval(() => {
-      if (performance.now() - this.startedAt >= this.durationMs) this.close();
-      else this.tui.requestRender();
-    }, this.tickMs);
-    this.timer.unref?.();
-  }
-
-  render(width: number): string[] {
-    const elapsed = Math.min(this.durationMs, performance.now() - this.startedAt);
-    // Use the terminal's own width when it is wider than the box we were handed: the
-    // overlay can be sized one cell short of the screen, and every cell it does not
-    // cover keeps the default background, which reads as a black column at the edge.
-    // Anything past the overlay's width is clipped by the compositor.
-    const columns = Math.max(width, this.tui.terminal.columns ?? 0);
-    return renderSplash(columns, this.tui.terminal.rows, elapsed, this.theme.getColorMode());
-  }
-
-  handleInput(data: string): void {
-    const skip =
-      this.keybindings.matches(data, "tui.select.confirm") ||
-      this.keybindings.matches(data, "tui.select.cancel") ||
-      data === " ";
-    if (skip) this.close();
-  }
-
-  invalidate(): void {}
-
-  dispose(): void {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
-  }
-
-  private close(): void {
-    if (this.closed) return;
-    this.closed = true;
-    this.dispose();
-    this.finish(true);
-  }
-}
-
-/** Shows the splash in TUI mode and resolves once it finishes or is skipped. */
-export async function runSetupSplash(ctx: ExtensionContext, options: SetupSplashOptions = {}): Promise<void> {
-  if (!ctx.hasUI || ctx.mode !== "tui") return;
-  // Overlay, not inline: an inline component is laid out in the transcript, above
-  // the header and editor. The splash is a full-height frame, so inline it would
-  // overflow the viewport on every tick and drag the terminal into a scroll storm.
-  // As an overlay it is composited over the viewport instead, and disappears whole.
-  await ctx.ui.custom<boolean>(
-    (tui, theme, keybindings, done) => new SplashComponent(tui, theme, keybindings, done, options),
-    {
-      overlay: true,
-      overlayOptions: { width: "100%", maxHeight: "100%", margin: 0, anchor: "center" },
-    },
-  );
+    return `${line}${RESET}`;
+  });
 }

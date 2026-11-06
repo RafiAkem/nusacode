@@ -13,7 +13,7 @@
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { agentDir } from "../lib/home.ts";
-import { idr } from "../lib/money.ts";
+import { idr, USD_IDR } from "../lib/money.ts";
 import { historyReport, parsePeriod, periodRows, readLog } from "../lib/usage-log.ts";
 
 const MODELS_URL = "https://api.nusagate.com/api/public/models";
@@ -52,8 +52,6 @@ const FETCH_TIMEOUT_MS = 5_000;
 /** Below this the report carries the topup link. */
 const LOW_BALANCE_IDR = 5_000;
 const MIN_SPEED_SAMPLE_MS = 50;
-// Display-only: mirrors NusaGate's USD_IDR_RATE to render "vs official price".
-const USD_IDR = 18_000;
 
 type Json = Record<string, unknown>;
 

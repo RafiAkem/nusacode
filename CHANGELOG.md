@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `/language` sets the language the agent replies in: English, Bahasa Indonesia, or whatever you write in. NusaCode's own screens stay English.
 - Models that take images are marked `(vision)` in `/model`. A `model-capabilities.json` in the NusaCode home sets vision, maximum output and context window per model.
 - `/budget` sets a spending limit for the session, with a warning at 80% and a stop at 100%, and a warning for any single prompt that costs too much. `--default` keeps a limit for new sessions.
 - `/usage` shows today's and this month's spending across sessions, and `/usage history` breaks it down per day and per model. History is kept in `usage.jsonl` in the NusaCode home: model names, token counts and costs only.
@@ -11,6 +12,8 @@
 - `/undo` puts back the files the agent changed in its last prompt, and `/undo list` shows what can be undone. It covers the agent's own `write` and `edit` tools, not shell commands or subagents.
 
 ### Changed
+- Eight models are now marked `(vision)` instead of one: DeepSeek V4.1 Flash, Gemini 3.8 Flash, GLM 5.3 Flash, GPT-5.6 Terra, Kimi K3, Kimi K3.1 Pro, Qwen 3.8 Flash and Qwen 3.8 Max 0902, each checked with a test image through the gateway. A vision flag in NusaGate's catalog is used if one is added.
+- `/setup` is now one full-screen wizard. It opens with the N forming and a light drawing NusaGate's halo around it, then asks which language the agent should reply in. The API key step shows your balance, a new step picks the default model, showing each one's context window, price in rupiah and dollars, and whether it takes images, the import step is a checklist, and a closing screen sums up what was set. `/import-config` uses the same checklist.
 - `nusacode --version` prints both the NusaCode and the pi version.
 - Learned skills are now proposed, not saved straight into use: `/skills review` shows each one (a diff for an update, and notes on anything risky) and only an approved skill loads. Set `NUSACODE_AUTO_APPROVE_SKILLS=1` to keep the old behavior.
 

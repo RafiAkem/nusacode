@@ -24,8 +24,22 @@ export type Capabilities = {
 export const CAPABILITIES_FILE = "model-capabilities.json";
 export const DEFAULT_MAX_OUTPUT = 16_384;
 
+/**
+ * Checked on 2026-11-07 by sending each catalog model a solid red and a solid blue
+ * image through the gateway: these named both colours. The rest either got a 400
+ * ("does not accept images") or answered as if no image had arrived, which is what
+ * the GPT and Grok models on the gateway did, so marking them would only send
+ * pictures that are dropped on the way.
+ */
 export const BUILT_IN: Record<string, Capabilities> = {
   "deepseek-v4.1-flash": { vision: true },
+  "gemini-3.8-flash": { vision: true },
+  "glm-5.3-flash": { vision: true },
+  "gpt-5.6-terra": { vision: true },
+  "kimi-k3": { vision: true },
+  "kimi-k3.1-pro": { vision: true },
+  "qwen3.8-flash": { vision: true },
+  "qwen3.8-max-0902": { vision: true },
 };
 
 const positiveInteger = (value: unknown): value is number =>
@@ -69,13 +83,19 @@ function lookup(table: Record<string, Capabilities>, id: string): Capabilities {
 
 export type ResolvedCapabilities = { vision: boolean; maxOutput: number; contextWindow: number };
 
-/** A model's capabilities: the user's file over the built-in table over the defaults. */
+/**
+ * A model's capabilities: the user's file over what the catalog says over the
+ * built-in table over the defaults. The catalog says nothing about vision today;
+ * `catalogVision` is there for when it does.
+ */
 export function resolveCapabilities(
   id: string,
   catalogContextWindow: number,
   overrides: Record<string, Capabilities> = {},
+  catalogVision?: boolean,
 ): ResolvedCapabilities {
-  const merged = { ...lookup(BUILT_IN, id), ...lookup(overrides, id) };
+  const fromCatalog: Capabilities = catalogVision === undefined ? {} : { vision: catalogVision };
+  const merged = { ...lookup(BUILT_IN, id), ...fromCatalog, ...lookup(overrides, id) };
   const contextWindow = merged.contextWindow ?? catalogContextWindow;
   return {
     vision: merged.vision ?? false,

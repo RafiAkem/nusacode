@@ -3,6 +3,15 @@ export function idr(n: number): string {
   return `Rp ${Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
 }
 
+/** Display-only: mirrors NusaGate's USD_IDR_RATE. Billing is always in rupiah. */
+export const USD_IDR = 18_000;
+
+/** A rupiah amount in US dollars, for reference: `$0.22`, `$0.033` below ten cents, `$12.50`. */
+export function usd(rupiah: number): string {
+  const dollars = rupiah / USD_IDR;
+  return `$${dollars >= 0.1 || dollars === 0 ? dollars.toFixed(2) : dollars.toFixed(3)}`;
+}
+
 const MAX_AMOUNT = 1_000_000_000_000;
 /** Words after a number: `5k`, `5rb` (ribu), `1.5m`, `2jt` (juta). */
 const MULTIPLIERS: Record<string, number> = { k: 1_000, rb: 1_000, m: 1_000_000, jt: 1_000_000 };

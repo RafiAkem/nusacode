@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { checkApiKey, findSkills, importSource, saveApiKey, scanSources, setupIsDone } from "../extensions/setup.ts";
+import { checkApiKey, findSkills, importLabels, importSource, saveApiKey, scanSources, setupIsDone, verifyApiKey } from "../extensions/setup.ts";
 
 function tempDir(t: { after(fn: () => void): void }): string {
   const dir = mkdtempSync(join(tmpdir(), "nusacode-setup-"));
@@ -52,6 +52,17 @@ test("names already installed, loaded by pi, or seen in an earlier agent aren't 
   assert.deepEqual(scanSources(home, dest).map((s) => [s.label, s.skills.map((x) => x.name)]), [
     ["Claude Code", ["dup", "fresh"]],
   ]);
+});
+
+test("importLabels copies only the picked agents, and a skill an unpicked agent shares still comes over", (t) => {
+  const home = tempDir(t);
+  const dest = join(home, "dest");
+  skill(join(home, ".claude", "skills"), "shared");
+  skill(join(home, ".claude", "skills"), "claude-only");
+  skill(join(home, ".codex", "skills"), "shared");
+  const reports = importLabels(["Codex"], home, dest);
+  assert.deepEqual(reports, [{ label: "Codex", imported: ["shared"], skipped: [], instructions: false }]);
+  assert.equal(existsSync(join(dest, "skills", "claude-only")), false);
 });
 
 test("import copies a skill but not its dot files, and never overwrites", (t) => {
@@ -130,6 +141,17 @@ test("checkApiKey separates a bad key from a gateway problem", async (t) => {
     throw new Error("offline");
   }) as typeof fetch;
   assert.equal(await checkApiKey("k"), "unreachable");
+});
+
+test("verifyApiKey brings the balance back when the gateway sends one", async (t) => {
+  const original = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = original;
+  });
+  globalThis.fetch = (async () => new Response(JSON.stringify({ balance: 42_500 }), { status: 200 })) as typeof fetch;
+  assert.deepEqual(await verifyApiKey("k"), { status: "ok", balanceIdr: 42_500 });
+  globalThis.fetch = (async () => new Response("not json", { status: 200 })) as typeof fetch;
+  assert.deepEqual(await verifyApiKey("k"), { status: "ok" });
 });
 
 test("setupIsDone reads the marker and treats anything else as not done", (t) => {

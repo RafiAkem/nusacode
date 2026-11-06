@@ -6,8 +6,9 @@
  * cache file while this extension loads, and refreshed from the catalog that
  * meter.ts fetches each session. With no cache yet, models.json is the fallback.
  *
- * The catalog has no capability fields, so what a model can take and give comes from
- * lib/model-capabilities.ts: built-in facts plus the user's model-capabilities.json.
+ * The catalog has no capability fields yet (a vision flag is read if one appears), so
+ * what a model can take and give comes from lib/model-capabilities.ts: facts checked
+ * against the gateway, plus the user's model-capabilities.json.
  * Without an entry a model gets the models.json defaults: text input, 16384 output
  * tokens. Models that take images are marked "(vision)" in /model. DeepSeek models are the
  * ones verified to answer with `reasoning_content` and accept the gateway's
@@ -28,7 +29,23 @@ const DEFAULT_CONTEXT_WINDOW = 128_000;
 /** Reasoning models on the gateway: they take `thinking` and return `reasoning_content`. */
 const REASONING = /^deepseek-/;
 
-export type CatalogModel = { id: string; name: string; contextWindow: number };
+export type CatalogModel = { id: string; name: string; contextWindow: number; vision?: boolean };
+
+/**
+ * Whether a catalog row says the model takes images. The catalog has no such field
+ * yet; these are the shapes gateways commonly use, so it is picked up when it lands.
+ */
+function catalogVision(entry: Record<string, unknown>): boolean | undefined {
+  if (typeof entry.vision === "boolean") return entry.vision;
+  const lists = [
+    entry.input_modalities,
+    entry.inputModalities,
+    (entry.modalities as Record<string, unknown> | undefined)?.input,
+    (entry.architecture as Record<string, unknown> | undefined)?.input_modalities,
+  ];
+  const list = lists.find(Array.isArray) as unknown[] | undefined;
+  return list ? list.includes("image") : undefined;
+}
 
 /** The usable rows of a catalog response; rows without an id are dropped. */
 export function parseCatalog(rows: unknown): CatalogModel[] {
@@ -39,7 +56,8 @@ export function parseCatalog(rows: unknown): CatalogModel[] {
     const name = typeof entry.displayName === "string" && entry.displayName ? entry.displayName : entry.id;
     const context = entry.contextLength;
     const contextWindow = typeof context === "number" && context > 0 ? context : DEFAULT_CONTEXT_WINDOW;
-    return [{ id: entry.id, name, contextWindow }];
+    const vision = catalogVision(entry);
+    return [vision === undefined ? { id: entry.id, name, contextWindow } : { id: entry.id, name, contextWindow, vision }];
   });
 }
 
@@ -59,7 +77,12 @@ function writeCache(dir: string, models: CatalogModel[]): void {
   mkdirSync(dir, { recursive: true });
   const target = join(dir, CACHE_FILE);
   const temp = `${target}.tmp`;
-  const rows = models.map(({ id, name, contextWindow }) => ({ id, displayName: name, contextLength: contextWindow }));
+  const rows = models.map(({ id, name, contextWindow, vision }) => ({
+    id,
+    displayName: name,
+    contextLength: contextWindow,
+    ...(vision === undefined ? {} : { vision }),
+  }));
   writeFileSync(temp, `${JSON.stringify({ models: rows }, null, 2)}\n`);
   renameSync(temp, target);
 }
@@ -72,7 +95,7 @@ function register(pi: ExtensionAPI, models: CatalogModel[]): void {
     apiKey: "$NUSAGATE_API_KEY",
     api: "openai-completions",
     models: models.map((model) => {
-      const caps = resolveCapabilities(model.id, model.contextWindow, overrides);
+      const caps = resolveCapabilities(model.id, model.contextWindow, overrides, model.vision);
       return {
         id: model.id,
         name: caps.vision ? `${model.name} (vision)` : model.name,

@@ -1,24 +1,38 @@
 /**
  * NusaCode first-time setup and import from other coding agents.
  *
- * Setup runs once on a new session: it asks for a NusaGate API key if there is
- * none, then offers to import from each agent it finds. `/setup` runs it again
- * and `/import-config` runs only the import.
+ * Setup runs once on a new session, as a full-screen wizard: a splash, then the
+ * reply language, the NusaGate API key, the default model, an import from any other agents it finds,
+ * and a closing summary. `/setup` runs it again and `/import-config` runs only
+ * the import. Outside the TUI it falls back to plain dialogs.
  *
- * Import copies skills and one global instructions file. It asks per source,
- * never overwrites, and leaves credentials and MCP servers behind: those hold
- * secrets and start processes, so copying them silently would be unsafe.
+ * Import copies skills and one global instructions file. You pick the sources,
+ * it never overwrites, and it leaves credentials and MCP servers behind: those
+ * hold secrets and start processes, so copying them silently would be unsafe.
  *
- * `NUSACODE_SKIP_SETUP=1` skips the automatic run.
+ * `NUSACODE_SKIP_SETUP=1` skips the automatic run; `NUSACODE_NO_SPLASH=1` skips
+ * the splash.
  */
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { runSetupOutro } from "../lib/outro.ts";
-import { runSetupSplash } from "../lib/splash.ts";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { BALANCE_URL, KEY_CHANNEL } from "./meter.ts";
+import { BALANCE_URL, CATALOG_CHANNEL, KEY_CHANNEL, parsePrice, type Price } from "./meter.ts";
 import { agentDir } from "../lib/home.ts";
+import { DEFAULT_LANGUAGE, LANGUAGES, readLanguage, writeLanguage, type LanguageId } from "../lib/language.ts";
+import {
+  importStep,
+  keyStep,
+  languageStep,
+  modelStep,
+  readyStep,
+  type ImportReport,
+  type KeyCheck,
+  type KeyOutcome,
+  type ModelChoice,
+  type SetupSummary,
+} from "../lib/setup-steps.ts";
+import { runSetupWizard, type StepDefinition } from "../lib/setup-wizard.ts";
 
 const PROVIDER = "nusagate";
 const DEFAULT_MODEL = "deepseek-v4.1-flash";
@@ -91,13 +105,13 @@ function hasContent(path: string): boolean {
 }
 
 /** Agents on this machine with something to import. A skill name goes to the first agent that has it. */
-export function scanSources(userHome: string, skillsDir: string): ImportSource[] {
+export function scanSources(userHome: string, skillsDir: string, include: (label: string) => boolean = () => true): ImportSource[] {
   const taken = new Set<string>();
   for (const root of [skillsDir, ...ALREADY_LOADED.map((dir) => join(userHome, dir))]) {
     for (const skill of findSkills(root)) taken.add(skill.name);
   }
   const sources: ImportSource[] = [];
-  for (const agent of AGENTS) {
+  for (const agent of AGENTS.filter((candidate) => include(candidate.label))) {
     const skills = agent.skills.flatMap((dir) => findSkills(join(userHome, dir)));
     const fresh = skills.filter((skill) => {
       if (taken.has(skill.name) || !SKILL_NAME.test(skill.name)) return false;
@@ -166,17 +180,25 @@ export function saveApiKey(destinationHome: string, key: string): boolean {
   return true;
 }
 
-export async function checkApiKey(key: string): Promise<"ok" | "rejected" | "unreachable"> {
+/** Asks the balance endpoint about a key; the balance comes back too when it is there. */
+export async function verifyApiKey(key: string): Promise<KeyCheck> {
   try {
     const res = await fetch(process.env.NUSAGATE_BALANCE_URL || BALANCE_URL, {
       headers: { Authorization: `Bearer ${key}` },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    if (res.status === 401 || res.status === 403) return "rejected";
-    return res.ok ? "ok" : "unreachable";
+    if (res.status === 401 || res.status === 403) return { status: "rejected" };
+    if (!res.ok) return { status: "unreachable" };
+    const body = (await res.json().catch(() => null)) as { balance?: unknown } | null;
+    const balance = body?.balance;
+    return typeof balance === "number" && Number.isFinite(balance) ? { status: "ok", balanceIdr: balance } : { status: "ok" };
   } catch {
-    return "unreachable";
+    return { status: "unreachable" };
   }
+}
+
+export async function checkApiKey(key: string): Promise<"ok" | "rejected" | "unreachable"> {
+  return (await verifyApiKey(key)).status;
 }
 
 export function setupIsDone(destinationHome: string): boolean {
@@ -216,6 +238,18 @@ async function runImport(ctx: ExtensionContext): Promise<ImportResult[]> {
     results.push(importSource(source, home));
   }
   return results;
+}
+
+/**
+ * Imports the named sources. They are scanned again with only those agents in play,
+ * so a skill that an unpicked agent also has still comes from a picked one.
+ */
+export function importLabels(labels: string[], userHome: string, destinationHome: string): ImportReport[] {
+  const picked = new Set(labels);
+  return scanSources(userHome, join(destinationHome, "skills"), (label) => picked.has(label)).map((source) => ({
+    label: source.label,
+    ...importSource(source, destinationHome),
+  }));
 }
 
 function importSummary(results: ImportResult[]): string | null {
@@ -261,28 +295,132 @@ export default function setup(pi: ExtensionAPI) {
     ctx.ui.notify("No API key yet. Run /setup or set NUSAGATE_API_KEY.", "warning");
   }
 
-  async function runSetup(ctx: ExtensionContext): Promise<void> {
-    // The splash is NusaCode's only full-screen moment; keep an escape hatch for
-    // scripted runs. It is cosmetic, so a failure must never block setup.
-    if (process.env.NUSACODE_NO_SPLASH !== "1") {
-      try {
-        await runSetupSplash(ctx);
-      } catch {
-        // Fall through to the key prompt.
-      }
+  /** Prices from the gateway catalog, for the model step. meter.ts fetches it each session. */
+  const prices = new Map<string, Price>();
+  pi.events.on(CATALOG_CHANNEL, (rows) => {
+    if (!Array.isArray(rows)) return;
+    for (const row of rows) {
+      const id = (row as { id?: unknown } | null)?.id;
+      const price = parsePrice(row);
+      if (typeof id === "string" && price) prices.set(id, price);
     }
+  });
+
+  /**
+   * Saves a key and switches the running session over to it. Resolves with a
+   * message when it could not be saved.
+   */
+  async function storeKey(ctx: ExtensionContext, key: string): Promise<string | null> {
+    if (!saveApiKey(nusacodeHome(), key)) return "auth.json could not be read, so the key was not saved. Set NUSAGATE_API_KEY instead.";
+    // pi resolves the configured key from this variable for the rest of the session.
+    process.env.NUSAGATE_API_KEY = key;
+    pi.events.emit(KEY_CHANNEL, { key });
+    // pi snapshots credentials at startup, and with no key it started on a placeholder model.
+    await ctx.modelRegistry.refresh();
+    if (!ctx.model || ctx.model.id === PLACEHOLDER_MODEL) {
+      const model = ctx.modelRegistry.find(PROVIDER, DEFAULT_MODEL);
+      if (model) await pi.setModel(model);
+    }
+    return null;
+  }
+
+  function gatewayModels(ctx: ExtensionContext): ModelChoice[] {
+    return ctx.modelRegistry
+      .getAvailable()
+      .filter((model) => model.provider === PROVIDER && model.id !== PLACEHOLDER_MODEL)
+      .map((model) => {
+        const price = prices.get(model.id);
+        const vision = model.input.includes("image");
+        // models.ts puts "(vision)" in the name for /model; this table has its own column for it.
+        const name = (model.name || model.id).replace(/ \(vision\)$/, "");
+        return {
+          id: model.id,
+          name,
+          inputPer1M: price?.inputPer1M,
+          outputPer1M: price?.outputPer1M,
+          contextWindow: model.contextWindow,
+          vision,
+        };
+      });
+  }
+
+  function importChoices(): ImportSource[] {
+    return scanSources(homedir(), join(nusacodeHome(), "skills"));
+  }
+
+  function importStepFor(sources: ImportSource[], onImported: (reports: ImportReport[]) => void): StepDefinition {
+    return importStep({
+      sources: sources.map((s) => ({ label: s.label, skills: s.skills.map((skill) => skill.name), instructions: s.instructions ? basename(s.instructions) : null })),
+      run: (labels) => importLabels(labels, homedir(), nusacodeHome()),
+      onImported,
+    });
+  }
+
+  async function runWizard(ctx: ExtensionContext): Promise<boolean> {
+    const existingKey = (await ctx.modelRegistry.getApiKeyForProvider(PROVIDER).catch(() => undefined)) ?? null;
+    const summary: SetupSummary = { language: null, key: null, model: null, imports: null };
+    let hasKey = Boolean(existingKey);
+    const steps: StepDefinition[] = [
+      languageStep({
+        languages: LANGUAGES,
+        current: readLanguage(nusacodeHome()),
+        fallback: DEFAULT_LANGUAGE,
+        save: (id) => {
+          try {
+            writeLanguage(nusacodeHome(), id as LanguageId);
+            return null;
+          } catch (err) {
+            return `The language could not be saved: ${err instanceof Error ? err.message : String(err)}`;
+          }
+        },
+        onChosen: (choice) => {
+          summary.language = choice.id === "auto" ? "the language you write in" : choice.label;
+        },
+      }),
+      keyStep({
+        existingKey,
+        dashboardUrl: API_KEYS_URL,
+        verify: verifyApiKey,
+        save: (key) => storeKey(ctx, key),
+        onOutcome: (outcome: KeyOutcome) => {
+          summary.key = outcome;
+          if (outcome.kind === "saved") hasKey = true;
+        },
+      }),
+      modelStep({
+        // One model, or none because there is no key, leaves nothing to choose.
+        skip: () => !hasKey || gatewayModels(ctx).length < 2,
+        models: () => gatewayModels(ctx),
+        currentId: () => (ctx.model?.provider === PROVIDER ? ctx.model.id : null),
+        select: async (id) => {
+          const model = ctx.modelRegistry.find(PROVIDER, id);
+          return model ? pi.setModel(model) : false;
+        },
+        onChosen: (choice) => {
+          const current = ctx.model?.provider === PROVIDER ? ctx.model : null;
+          summary.model = choice ? { name: choice.name, chosen: true } : current ? { name: (current.name || current.id).replace(/ \(vision\)$/, ""), chosen: false } : null;
+        },
+      }),
+    ];
+    const sources = importChoices();
+    if (sources.length > 0) steps.push(importStepFor(sources, (reports) => (summary.imports = reports)));
+    steps.push(readyStep(() => summary));
+
+    const outcome = await runSetupWizard(ctx, steps, { splash: process.env.NUSACODE_NO_SPLASH !== "1" });
+    if (outcome === null) return false;
+    // Marked whether it was finished or closed with ctrl+c: closing it is an answer too.
+    markSetupDone(nusacodeHome());
+    if (outcome === "cancelled") ctx.ui.notify("Setup closed. Run /setup whenever you want it back.", "info");
+    else if (summary.key?.kind === "skipped") ctx.ui.notify("No API key yet. Run /setup or set NUSAGATE_API_KEY.", "warning");
+    return true;
+  }
+
+  async function runSetup(ctx: ExtensionContext): Promise<void> {
+    if (ctx.mode === "tui" && ctx.hasUI && (await runWizard(ctx))) return;
+    // No TUI: the same questions as plain dialogs.
     await askForKey(ctx);
     const summary = importSummary(await runImport(ctx));
-    // Marked at the end, so quitting halfway asks again next time.
     markSetupDone(nusacodeHome());
-    // Only now is it true, so only now does it say so. Same escape hatch as the splash.
-    if (process.env.NUSACODE_NO_SPLASH !== "1") {
-      try {
-        await runSetupOutro(ctx);
-      } catch {
-        // Cosmetic: the summary below still has to run.
-      }
-    }
     ctx.ui.notify(summary ? `Setup complete.\n${summary}` : "Setup complete.", "info");
   }
 
@@ -297,13 +435,21 @@ export default function setup(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("setup", {
-    description: "Run first-time setup again: API key and import from other agents",
+    description: "Run first-time setup again: language, API key, default model and import from other agents",
     handler: async (_args, ctx) => runSetup(ctx),
   });
 
   pi.registerCommand("import-config", {
     description: "Import skills and instructions from Claude Code, Codex, oh-my-pi, pi, or OpenCode",
     handler: async (_args, ctx) => {
+      if (ctx.mode === "tui" && ctx.hasUI) {
+        const sources = importChoices();
+        if (sources.length === 0) {
+          ctx.ui.notify("Nothing to import: no new skills or instructions from other agents.", "info");
+          return;
+        }
+        if ((await runSetupWizard(ctx, [importStepFor(sources, () => {})], { splash: false })) !== null) return;
+      }
       const summary = importSummary(await runImport(ctx));
       ctx.ui.notify(summary ?? "Nothing was imported.", "info");
     },
