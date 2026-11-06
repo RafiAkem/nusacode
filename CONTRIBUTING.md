@@ -57,8 +57,8 @@ npm test
 Tests use `node:test` and `node:assert/strict`, with no framework and no extra dependencies. They run against a
 fake `pi` object and a stubbed `fetch`, so they need no network, API key or spending.
 
-Please add a test with any behavior change. Pull requests run the suite automatically on Node 22 and 24, on Linux and
-Windows.
+Please add a test with any behavior change. Pull requests run the suite automatically on Node 22 and 24, on Linux,
+Windows and macOS.
 
 For changes to the TUI, also run it and look at it: the tests can't tell you whether it looks right. Try a narrow
 and a short terminal too.
