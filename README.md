@@ -98,8 +98,8 @@ Start a message with `!` to run a shell command, or `!!` to run it without sendi
 Every response is recorded in `usage.jsonl` in the NusaCode home, so `/usage` can show today's and this month's
 spending across sessions, and `/usage history` can compare models by total cost, cost per request and cache hit rate.
 Only the time, the model name, token counts and the cost are saved, never your messages. Costs stay as they were
-charged, so a later price change doesn't rewrite them. Delete the file to start over; entries older than 400 days
-are dropped when it grows past 2 MB.
+charged, so a later price change doesn't rewrite them. Once the file passes 1 MB, everything before today is folded into
+one line per day and model, which keeps every total and keeps the file small. Delete the file to start over.
 
 ## Budget
 

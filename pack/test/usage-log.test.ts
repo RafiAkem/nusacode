@@ -13,7 +13,9 @@ import {
   parsePeriod,
   periodRows,
   periodStart,
-  pruneLog,
+  compactBytes,
+  compactLog,
+  compactRecords,
   readLog,
   totalOf,
   within,
@@ -118,18 +120,72 @@ test("an empty history says so instead of printing zeros", () => {
   ]);
 });
 
-test("a big log loses its oldest records, and a small one is left alone", (t) => {
+test("compacting folds earlier days into one line per day and model, and keeps every total", () => {
+  const records = [
+    record(at(3, 9), "nusagate/a", 100, { cached: 50, session: "s1" }),
+    record(at(3, 15), "nusagate/a", 200, { session: "s2" }),
+    record(at(3, 16), "nusagate/a", 0, { unpriced: true }),
+    record(at(3, 10), "nusagate/a", 40, { sub: true }),
+    record(at(3, 11), "nusagate/b", 7),
+    record(at(40), "nusagate/a", 999),
+    record(at(0, 9), "nusagate/a", 5),
+    record(at(0, 10), "nusagate/a", 6),
+  ];
+  const compacted = compactRecords(records, NOW);
+  assert.equal(compacted.length, 6, "3 days x model x source summaries before today, 2 records from today");
+  const main = compacted.find((r) => r.model === "nusagate/a" && !r.sub && r.cost === 300);
+  assert.deepEqual(
+    { n: main?.n, nu: main?.nu, cached: main?.cached, fresh: main?.fresh, session: main?.session },
+    { n: 3, nu: 1, cached: 50, fresh: 3000, session: undefined },
+  );
+  assert.deepEqual(compacted.slice(-2).map((r) => r.cost), [5, 6], "today stays as it was");
+  // Every report reads the same before and after.
+  for (const period of ["today", "week", "month", "all"] as const) {
+    assert.equal(historyReport(compactRecords(records, NOW), period, NOW), historyReport(records, period, NOW), period);
+  }
+  assert.deepEqual(compactRecords(compacted, NOW), compacted, "compacting twice changes nothing");
+});
+
+test("a big log is compacted once, and a small one is left alone", (t) => {
   const dir = tempDir(t);
-  const old = record(at(500), "nusagate/a", 1);
-  const recent = record(at(1), "nusagate/a", 2);
-  writeFileSync(join(dir, LOG_FILE), [old, recent].map((r) => `${JSON.stringify(r)}\n`).join(""));
-  pruneLog(dir, NOW);
-  assert.equal(readLog(dir).length, 2, "under the size limit: untouched");
-  appendFileSync(join(dir, LOG_FILE), `${JSON.stringify(record(at(1), "nusagate/a", 3, { session: "x".repeat(2_000_000) }))}\n`);
-  assert.ok(statSync(join(dir, LOG_FILE)).size > 2_000_000);
-  pruneLog(dir, NOW);
-  assert.deepEqual(readLog(dir).map((r) => r.cost), [2, 3], "the 500-day-old record is dropped");
-  pruneLog(tempDir(t), NOW); // no file: no error
+  const path = join(dir, LOG_FILE);
+  const lines = (count: number, daysAgo: number) =>
+    Array.from({ length: count }, (_, i) => `${JSON.stringify(record(at(daysAgo, 9 + (i % 8)), "nusagate/a", 1))}\n`).join("");
+  writeFileSync(path, lines(10, 2));
+  compactLog(dir, NOW);
+  assert.equal(readLog(dir).length, 10, "under the size limit: untouched");
+
+  writeFileSync(path, lines(9000, 2) + lines(3000, 1) + lines(5, 0));
+  assert.ok(statSync(path).size > 1_000_000);
+  compactLog(dir, NOW);
+  const after = readLog(dir);
+  assert.equal(after.length, 2 + 5, "two summary days plus today's records");
+  assert.equal(totalOf(after).requests, 12_005);
+  assert.equal(totalOf(after).cost, 12_005);
+  assert.ok(statSync(path).size < 5_000);
+  compactLog(tempDir(t), NOW); // no file: no error
+});
+
+test("lines another window appends during compaction are kept, and a file changed underneath is left alone", (t) => {
+  const dir = tempDir(t);
+  const path = join(dir, LOG_FILE);
+  const big = Array.from({ length: 9000 }, () => `${JSON.stringify(record(at(2), "nusagate/a", 1))}\n`).join("");
+  writeFileSync(path, big);
+
+  const before = readFileSync(path);
+  const late = `${JSON.stringify(record(at(0), "nusagate/late", 42))}\n`;
+
+  // Another window appended after this one read the file: its line survives, untouched.
+  const merged = compactBytes(before, Buffer.concat([before, Buffer.from(late)]), NOW);
+  assert.ok(merged);
+  writeFileSync(path, merged);
+  const after = readLog(dir);
+  assert.equal(totalOf(after).requests, 9001);
+  assert.equal(after.at(-1)?.model, "nusagate/late");
+
+  // Another window rewrote the file (compacted it itself, say): nothing is written over that.
+  assert.equal(compactBytes(before, Buffer.from(late), NOW), null);
+  assert.equal(compactBytes(before, Buffer.concat([Buffer.from("x"), before]), NOW), null);
 });
 
 test("the history extension records each priced response with its session", (t) => {
