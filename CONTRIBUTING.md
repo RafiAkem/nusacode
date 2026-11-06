@@ -40,7 +40,7 @@ pack/extensions/                 every file here is loaded as a pi extension
   estimate.ts                    cost notice before a large message or a subagent fan-out
   models.ts                      /model list from NusaGate's catalog
   setup.ts                       first-time setup, /setup, /import-config
-  learn.ts                       automatic skills, /skills
+  learn.ts                       automatic skills, /skills, /skills review
   token-saver.ts                 cache guard, output truncation, thinking routing
   subagents.ts                   task tool
   plan.ts                        /plan: read-only and ask-first modes

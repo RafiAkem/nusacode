@@ -16,6 +16,11 @@
  * New skills apply from the next session: reloading now would change the system
  * prompt and throw away the provider's prompt cache mid-session.
  *
+ * A learned skill is only proposed. It is saved in `<home>/skills-pending`, which pi
+ * doesn't load, until `/skills review` shows it (with a diff for an update, and notes on
+ * anything risky) and you approve it. `NUSACODE_AUTO_APPROVE_SKILLS=1` skips the review and
+ * writes straight to `<home>/skills`.
+ *
  * `NUSACODE_NO_LEARN=1` turns all of this off.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -23,6 +28,7 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { runAgent, USAGE_CHANNEL } from "./subagents.ts";
 import { agentDir } from "../lib/home.ts";
+import { lineDiff, riskNotes } from "../lib/skill-review.ts";
 
 const REVIEW_MODEL = "nusagate/deepseek-v4.1-flash";
 const NUSAGATE = "nusagate";
@@ -30,6 +36,7 @@ const NUSAGATE = "nusagate";
 const PLACEHOLDER_MODEL = "unknown";
 const REVIEW_TIMEOUT_MS = 120_000;
 const STATUS_KEY = "nusa-learn";
+const PENDING_KEY = "nusa-skills";
 const PREFIX = "learned-";
 
 /** A run is worth reviewing after this much work, or less if it recovered from an error. */
@@ -104,6 +111,11 @@ function asRecord(value: unknown): Json | null {
 
 function skillsDir(): string {
   return join(agentDir(), "skills");
+}
+
+/** Proposed skills wait here. pi loads skills from `skills`, never from this folder. */
+function pendingDir(): string {
+  return join(agentDir(), "skills-pending");
 }
 
 function envSecrets(): string[] {
@@ -212,8 +224,18 @@ function refused(reason: string): Outcome {
   return { kind: "refused", reason };
 }
 
-/** Validates a decision and writes the skill. `updatable` names the skills the reviewer was shown in full. */
-export function applyDecision(dir: string, decision: Decision, updatable: readonly string[], secrets?: string[]): Outcome {
+/**
+ * Validates a decision and writes the skill. `updatable` names the skills the reviewer was shown in full.
+ * `activeDir`, when the skill is written somewhere else, is where skills already in use live: a create
+ * may not take the name of one of those.
+ */
+export function applyDecision(
+  dir: string,
+  decision: Decision,
+  updatable: readonly string[],
+  secrets?: string[],
+  activeDir?: string,
+): Outcome {
   if (decision.action === "none") return { kind: "none" };
   const name = learnedName(decision.name);
   if (!name) return refused(`invalid name: ${decision.name}`);
@@ -228,7 +250,8 @@ export function applyDecision(dir: string, decision: Decision, updatable: readon
 
   const skillDir = join(dir, name);
   const exists = existsSync(join(skillDir, "SKILL.md"));
-  if (decision.action === "create" && exists) return refused(`skill already exists: ${name}`);
+  const active = activeDir !== undefined && existsSync(join(activeDir, name, "SKILL.md"));
+  if (decision.action === "create" && (exists || active)) return refused(`skill already exists: ${name}`);
   if (decision.action === "update" && !updatable.includes(name)) return refused(`not allowed to update: ${name}`);
 
   mkdirSync(skillDir, { recursive: true });
@@ -326,18 +349,88 @@ export default function learn(pi: ExtensionAPI) {
       lastProblem = "could not read the review's answer";
       return;
     }
-    const outcome = applyDecision(dir, decision, updatable);
+    const autoApprove = process.env.NUSACODE_AUTO_APPROVE_SKILLS === "1";
+    const outcome = autoApprove
+      ? applyDecision(dir, decision, updatable)
+      : applyDecision(pendingDir(), decision, updatable, undefined, dir);
     if (outcome.kind === "refused") lastProblem = `skill refused: ${outcome.reason}`;
     if (outcome.kind === "created" || outcome.kind === "updated") {
       lastProblem = null;
       const verb = outcome.kind === "created" ? "Learned a new skill" : "Updated a skill";
-      ctx.ui.notify(`${verb}: ${outcome.name}. It applies from your next session. See /skills.`, "info");
+      const next = autoApprove
+        ? "It applies from your next session. See /skills."
+        : "It won't be used until you approve it: /skills review.";
+      ctx.ui.notify(`${verb}: ${outcome.name}. ${next}`, "info");
+      showPending(ctx);
     }
   }
 
-  pi.on("session_start", () => {
+  /** The status bar says when a proposed skill is waiting for you. */
+  function showPending(ctx: ExtensionContext): void {
+    const waiting = listLearned(pendingDir()).length;
+    try {
+      ctx.ui.setStatus(PENDING_KEY, waiting > 0 ? `${waiting} learned skill${waiting === 1 ? "" : "s"} to review · /skills review` : undefined);
+    } catch {
+      // The session was replaced while a review ran.
+    }
+  }
+
+  const APPROVE = "Approve";
+  const REJECT = "Reject (delete it)";
+  const LATER = "Decide later";
+
+  /** Walks through the proposed skills one at a time. */
+  async function reviewPending(ctx: ExtensionContext, only?: string): Promise<void> {
+    const pending = listLearned(pendingDir()).filter((skill) => !only || skill.name === only);
+    if (pending.length === 0) {
+      ctx.ui.notify(only ? `No proposed skill called ${only}.` : "No learned skills are waiting for review.", "info");
+      return;
+    }
+    let approved = 0;
+    let rejected = 0;
+    for (const [index, skill] of pending.entries()) {
+      const current = listLearned(skillsDir()).find((item) => item.name === skill.name);
+      const lines = [`Proposed skill ${index + 1} of ${pending.length}: ${skill.name}`, `When to use: ${skill.description}`, ""];
+      if (current) {
+        if (current.description !== skill.description) lines.push(`Description was: ${current.description}`, "");
+        lines.push("This replaces the skill you have. What changes:", ...lineDiff(current.body, skill.body));
+      } else {
+        lines.push("A new skill. Its full text:", "", ...skill.body.split("\n"));
+      }
+      const notes = riskNotes(`${skill.description}\n${skill.body}`);
+      lines.push("", notes.length > 0 ? `Look closely: it ${notes.join("; it ")}.` : "Nothing in it looked risky, but read it before you decide.");
+      ctx.ui.notify(lines.join("\n"), notes.length > 0 ? "warning" : "info");
+
+      const choice = await ctx.ui.select(`${current ? "Apply this update to" : "Approve"} ${skill.name}?`, [APPROVE, REJECT, LATER]);
+      if (choice === APPROVE) {
+        // Checked again as if it were new: the file can be edited by hand while it waits.
+        const outcome = applyDecision(
+          skillsDir(),
+          { action: current ? "update" : "create", name: skill.name, description: skill.description, body: skill.body },
+          [skill.name],
+        );
+        if (outcome.kind === "refused") {
+          ctx.ui.notify(`Not approved: ${outcome.reason}. It stays in the review list.`, "warning");
+          continue;
+        }
+        rmSync(join(pendingDir(), skill.name), { recursive: true, force: true });
+        approved += 1;
+      } else if (choice === REJECT) {
+        rmSync(join(pendingDir(), skill.name), { recursive: true, force: true });
+        rejected += 1;
+      } else if (choice === undefined) {
+        break; // Escape: stop going through them.
+      }
+    }
+    showPending(ctx);
+    const parts = [approved && `approved ${approved}`, rejected && `rejected ${rejected}`].filter(Boolean);
+    if (parts.length > 0) ctx.ui.notify(`${parts.join(", ")}. Approved skills apply from your next session.`, "info");
+  }
+
+  pi.on("session_start", (_event, ctx) => {
     reviews = 0;
     shutdown = new AbortController();
+    showPending(ctx);
   });
 
   pi.on("session_shutdown", () => {
@@ -364,10 +457,14 @@ export default function learn(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("skills", {
-    description: "List or delete automatically learned skills (/skills delete <name>)",
+    description: "List learned skills, review proposed ones (/skills review), or delete one (/skills delete <name>)",
     handler: async (args, ctx) => {
       const dir = skillsDir();
       const [verb, target] = args.trim().split(/\s+/);
+      if (verb === "review") {
+        await reviewPending(ctx, target ? (learnedName(target) ?? target) : undefined);
+        return;
+      }
       if (verb === "delete") {
         // learnedName() limits this to a valid name under the learned- prefix.
         const name = target ? learnedName(target) : null;
@@ -385,6 +482,11 @@ export default function learn(pi: ExtensionAPI) {
         learned.length > 0
           ? ["Automatically learned skills:", ...learned.map((skill) => `  ${skill.name}\n    ${skill.description}`), `Location: ${dir}`, "Delete: /skills delete <name>"]
           : ["No skills learned yet."];
+      const waiting = listLearned(pendingDir());
+      if (waiting.length > 0) {
+        if (learned.length === 0) lines[0] = "No learned skills are in use yet.";
+        lines.push("", "Waiting for your review (not in use yet):", ...waiting.map((skill) => `  ${skill.name}\n    ${skill.description}`), "Review: /skills review");
+      }
       if (lastProblem) lines.push(`Last review: ${lastProblem}`);
       ctx.ui.notify(lines.join("\n"), "info");
     },

@@ -12,6 +12,7 @@
 - A large message now shows what it will cost to send, and asks first when that is Rp 500 or more (`NUSACODE_CONFIRM_ABOVE` changes it). Starting several subagents at once shows the likely total.
 - `/plan` (or `alt+m`, or `--plan`) puts the agent in read-only plan mode, and `/plan ask` makes it ask before every file change and command.
 - `/undo` puts back the files the agent changed in its last prompt, and `/undo list` shows what can be undone. It covers the agent's own `write` and `edit` tools, not shell commands or subagents.
+- Learned skills are now proposed, not saved straight into use: `/skills review` shows each one (a diff for an update, and notes on anything risky) and only an approved skill loads. Set `NUSACODE_AUTO_APPROVE_SKILLS=1` to keep the old behavior.
 
 ## [0.1.0] - 2026-11-06
 

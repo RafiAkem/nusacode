@@ -57,7 +57,7 @@ what that cost. The session and its costs are real; only the balance is sample d
 | **Real costs in rupiah** | Each response is priced with the gateway's own billing formula, using live prices. Your balance, cost, cache hit rate and speed stay in view. |
 | **Spending limits** | `/budget 5000` stops the agent at Rp 5.000 for the session, with a warning at 80%. `/budget turn 500` warns when one prompt gets expensive. |
 | **Every NusaGate model** | `/model` lists the live catalog: DeepSeek, GPT, Gemini, GLM, Grok, Kimi, MiniMax, Qwen and more. |
-| **Learns as you work** | After substantial tasks, a background review can save what it learned as a reusable skill. |
+| **Learns as you work** | After substantial tasks, a background review can propose a reusable skill. It only loads once you've read and approved it with `/skills review`. |
 | **Brings your setup with it** | Import skills and global instructions from Claude Code, Codex, oh-my-pi, pi and OpenCode. |
 | **Spends fewer tokens** | Tool output is trimmed, thinking effort drops for simple prompts, and you're warned when something breaks the prompt cache. |
 | **Delegates to subagents** | The `task` tool hands focused work to separate processes, so exploration stays out of your main conversation. |
@@ -74,7 +74,7 @@ what that cost. The session and its costs are real; only the balance is sample d
 | `/budget` | Set a spending limit for the session, or a warning for a single prompt. See [Budget](#budget) |
 | `/model` | Switch model |
 | `/thinking` | Pick how hard the model thinks, or `/thinking high`. `shift+tab` cycles the levels. Only DeepSeek models support it |
-| `/skills` | List learned skills; `/skills delete <name>` removes one |
+| `/skills` | List learned skills, and the ones waiting for your approval. `/skills review` goes through them, and `/skills delete <name>` removes one |
 | `/import-config` | Import skills and instructions from other coding agents |
 | `/setup` | Run first-time setup again |
 | `/sessions` | Switch session in one step; add words to filter, or `all` to search every folder |
@@ -190,8 +190,12 @@ official cache price, so cached tokens are left out on both sides.
 
 After substantial work (at least 8 tool calls, or 4 if it recovered from an error), a background process reads
 the transcript and decides whether there's a procedure worth keeping. Most sessions teach nothing, and then
-nothing is saved. If there is one, it's written to `~/.nusacode/skills/learned-<name>/SKILL.md` and applies
-from your next session, because loading it mid-session would throw away the provider's prompt cache.
+nothing is saved. If there is one, it's proposed: saved in `~/.nusacode/skills-pending/`, which isn't loaded, and the
+status bar says a skill is waiting. `/skills review` shows each one, with a diff against the current version when it
+updates a skill, and notes on anything risky (web addresses, piping a download into a shell, asking for elevated rights,
+credentials, attempts to override instructions). If you approve it, it moves to
+`~/.nusacode/skills/learned-<name>/SKILL.md` and applies from your next session, because loading it mid-session would
+throw away the provider's prompt cache. It is checked again at approval, in case the file was edited while it waited.
 
 - **Cost:** each review is a paid model call, at most three per session, and its cost shows in the meter. It uses
   a low-cost NusaGate model if you have a NusaGate key, otherwise the model you're on. `NUSACODE_LEARN_MODEL`
@@ -199,11 +203,14 @@ from your next session, because loading it mid-session would throw away the prov
 - **Safety:** the review has no tools, so text in a transcript can't make it act. Secrets are masked before
   they reach the model, and a skill that still looks like it holds one is refused. Only skills prefixed
   `learned-` can be touched.
+- **Your approval:** a proposed skill never loads on its own. `NUSACODE_AUTO_APPROVE_SKILLS=1` skips the review
+  and saves straight to `skills/`, as earlier versions did.
 
 > [!WARNING]
-> Saved skills load in later sessions, and these checks can't guarantee a skill is free of harmful
-> instructions. Secret detection is pattern-based too, so it can miss a plain-looking password. Review what it
-> learns with `/skills`, or turn learning off with `NUSACODE_NO_LEARN=1`.
+> Approved skills load in every later session, and the review notes can't guarantee a skill is free of harmful
+> instructions: they are hints for reading, not a scanner. Secret detection is pattern-based too, so it can miss a
+> plain-looking password. Read what you approve, and turn learning off with `NUSACODE_NO_LEARN=1` if you'd rather
+> not have it.
 
 </details>
 
@@ -299,7 +306,8 @@ Everything lives in `~/.nusacode/`, or wherever `NUSACODE_HOME` points:
 ├── auth.json         API key, if you entered one during setup
 ├── AGENTS.md         global instructions, if imported
 ├── agents/           subagent definitions
-├── skills/           imported and learned skills
+├── skills/           imported and approved learned skills
+├── skills-pending/   learned skills waiting for your review
 └── sessions/         session history
 ```
 
@@ -335,6 +343,7 @@ default, so without a NusaGate key, set your own `model` in the agents in `~/.nu
 | `NUSACODE_SKIP_SETUP=1` | Skip first-time setup |
 | `NUSACODE_NO_SPLASH=1` | Skip the setup splash and confirmation screens |
 | `NUSACODE_NO_LEARN=1` | Turn off automatic learning |
+| `NUSACODE_AUTO_APPROVE_SKILLS=1` | Save learned skills straight into use, without `/skills review` |
 | `NUSACODE_LEARN_MODEL` | Model for learning reviews, as `provider/model` |
 | `NUSACODE_NO_TOKEN_SAVER=1` | Turn off all token saving |
 | `NUSACODE_CONFIRM_ABOVE` | Ask before sending a message estimated to cost this much or more, such as `2k`; default `500`, `off` never asks |
