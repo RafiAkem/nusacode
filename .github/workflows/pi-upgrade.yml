@@ -75,6 +75,6 @@ jobs:
             exit 0
           fi
           run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          gh issue create --title "$title" --body "The weekly check installed pi $LATEST and something no longer works: either a source patch in scripts/pi-build.cjs stopped matching or a test failed. The run has the details: $run
+          gh issue create --title "$title" --body "The weekly check installed pi $LATEST and something no longer works: a source patch in scripts/pi-build.cjs stopped matching, the patches would not reach the code pi runs, or a test failed. The run has the details: $run
 
           NusaCode stays on the pinned version until this is fixed, so nothing is broken for users. See Upgrading pi in CONTRIBUTING.md."

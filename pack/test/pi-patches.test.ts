@@ -10,7 +10,7 @@ import { parse } from "yaml";
 const require = createRequire(import.meta.url);
 const root = join(import.meta.dirname, "..", "..");
 const script = join(root, "scripts", "check-pi-patches.cjs");
-const { checkPatches } = require(script);
+const { checkPatches, entryProblem } = require(script);
 const { patches } = require(join(root, "scripts", "pi-build.cjs"));
 const piDir = join(root, "node_modules", "@earendil-works", "pi-coding-agent");
 
@@ -49,12 +49,40 @@ test("a file that pi moved or removed is reported as such", (t) => {
   assert.deepEqual(checkPatches(dir), [{ file: "dist/config.js", error: "the file no longer exists" }]);
 });
 
+/** Rewrites the copy's package.json so pi would start from `bin`. */
+function startFrom(dir: string, bin: unknown) {
+  const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+  manifest.bin = bin;
+  writeFileSync(join(dir, "package.json"), JSON.stringify(manifest));
+}
+
+test("patches that apply but would never be loaded are a failure too", (t) => {
+  const dir = patchedFilesCopy(t);
+  startFrom(dir, { pi: "dist/bundle/cli.js" });
+  assert.match(entryProblem(dir), /pi starts from dist\/bundle\/cli\.js, a bundle .* never loaded/);
+  startFrom(dir, { pi: "./dist/cli.js" });
+  assert.equal(entryProblem(dir), null);
+  startFrom(dir, "dist/cli.js");
+  assert.equal(entryProblem(dir), null, "a plain string bin works too");
+  startFrom(dir, undefined);
+  assert.match(entryProblem(dir), /names no pi command/);
+});
+
+test("the pinned pi 1.5.0 is reported as patched but not running the patches (the known bundle defect)", () => {
+  const result = spawnSync(process.execPath, [script, piDir], { encoding: "utf8" });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /^All \d+ patches apply to pi 1\.5\.0\.\nBut they would have no effect: pi starts from dist\/bundle\/cli\.js/);
+});
+
 test("the command line prints a verdict and exits 1 when something no longer applies", (t) => {
-  const good = spawnSync(process.execPath, [script, piDir], { encoding: "utf8" });
-  assert.equal(good.status, 0);
-  assert.match(good.stdout, /^All \d+ patches apply to pi \d+\.\d+\.\d+\./);
+  const working = patchedFilesCopy(t);
+  startFrom(working, { pi: "dist/cli.js" });
+  const good = spawnSync(process.execPath, [script, working], { encoding: "utf8" });
+  assert.equal(good.status, 0, good.stdout);
+  assert.match(good.stdout, /^All \d+ patches apply to pi \d+\.\d+\.\d+\.\n$/);
 
   const dir = patchedFilesCopy(t);
+  startFrom(dir, { pi: "dist/cli.js" });
   rmSync(join(dir, "dist/config.js"));
   const bad = spawnSync(process.execPath, [script, dir], { encoding: "utf8" });
   assert.equal(bad.status, 1);
