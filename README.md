@@ -76,6 +76,7 @@ what that cost. The session and its costs are real; only the balance is sample d
 | `/setup` | Run first-time setup again |
 | `/sessions` | Switch session in one step; add words to filter, or `all` to search every folder |
 | `/resume` | Continue an earlier session |
+| `/undo` | Put back the files the agent changed in its last prompt. `/undo list` shows what can be undone. See [Undo](#undo) |
 
 Start a message with `!` to run a shell command, or `!!` to run it without sending the output to the model.
 
@@ -89,6 +90,18 @@ Start a message with `!` to run a shell command, or `!!` to run it without sendi
 | `ctrl+l` | Switch model |
 | `escape` | Interrupt the agent |
 | `ctrl+d` | Exit |
+
+## Undo
+
+`/undo` puts back the files the agent changed in its last prompt. It lists what it will restore or delete, asks, then
+does it, and tells the model so it doesn't carry on as if the changes were still there. Run it again to go back
+another prompt.
+
+- It only knows about the agent's own `write` and `edit` tools. Changes made by a shell command (`sed -i`, `npm
+  install`, `git checkout`) or by a subagent are not undone. For those, use git.
+- If you edited a file yourself after the agent did, the question warns you that undoing replaces your edit.
+- The last 20 prompts are remembered, in memory only, so closing NusaCode forgets them. Files over 5 MB are not kept,
+  and are reported as too large to restore.
 
 ## How it works
 
