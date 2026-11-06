@@ -37,7 +37,7 @@ pack/extensions/                 every file here is loaded as a pi extension
   meter.ts                       rupiah cost meter, /usage, /topup
   models.ts                      /model list from NusaGate's catalog
   setup.ts                       first-time setup, /setup, /import-config
-  learn.ts                       automatic skills, /skills
+  learn.ts                       automatic skills, /skills, /skills review
   token-saver.ts                 cache guard, output truncation, thinking routing
   subagents.ts                   task tool
 pack/lib/                        shared code that isn't an extension
