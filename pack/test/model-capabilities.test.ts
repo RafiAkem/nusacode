@@ -71,17 +71,17 @@ test("the file is read from the home, and a missing or broken one means no overr
 });
 
 test("the models that passed the gateway image check are marked as vision models", () => {
-  for (const id of ["deepseek-v4.1-flash", "gemini-3.8-flash", "glm-5.3-flash", "gpt-5.6-terra", "kimi-k3", "kimi-k3.1-pro", "qwen3.8-flash", "qwen3.8-max-0902"]) {
+  for (const id of ["deepseek-v4.1-flash", "gemini-3.8-flash", "gpt-5.6-luna", "gpt-6-sol", "grok-4.7", "kimi-k3", "minimax-m3", "qwen3.8-max-0902"]) {
     assert.equal(resolveCapabilities(id, 1_000_000).vision, true, id);
   }
-  // Rejected by the gateway, or answered as if no image arrived.
-  for (const id of ["deepseek-v4-pro", "glm-5.3", "gpt-6-sol", "grok-4.7", "minimax-m3", "qwen3.8-max"]) {
+  // The gateway answers these with a 400, "does not accept images".
+  for (const id of ["deepseek-v4-pro", "glm-5.3", "qwen3.8-27b", "qwen3.8-max"]) {
     assert.equal(resolveCapabilities(id, 1_000_000).vision, false, id);
   }
 });
 
 test("a vision flag from the catalog beats the built-in table, and the user's file beats both", () => {
-  assert.equal(resolveCapabilities("gpt-6-sol", 1000, {}, true).vision, true);
+  assert.equal(resolveCapabilities("qwen3.8-max", 1000, {}, true).vision, true);
   assert.equal(resolveCapabilities("kimi-k3", 1000, {}, false).vision, false);
   assert.equal(resolveCapabilities("kimi-k3", 1000, { "kimi-k3": { vision: true } }, false).vision, true);
 });

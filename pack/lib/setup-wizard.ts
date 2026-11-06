@@ -14,7 +14,13 @@
 import type { Component } from "@earendil-works/pi-tui";
 import { foregroundAnsi, matchesKey, parseColor, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { messages } from "./i18n.ts";
 import { renderSplash, SPLASH_MS, SPLASH_SETTLED_MS } from "./splash.ts";
+
+const m = messages(
+  { setup: "setup", step: "step {n} of {total}", exit: "ctrl+c exit setup" },
+  { setup: "setup", step: "langkah {n} dari {total}", exit: "ctrl+c keluar" },
+);
 
 export const WIZARD_TICK_MS = 40;
 /** Splash into the first step, and one step into the next. */
@@ -135,8 +141,8 @@ export function renderFrame(input: FrameInput): string[] {
   const mode = theme.getColorMode();
 
   const current = Math.max(0, input.states.indexOf("current"));
-  const brand = `${theme.bold(`${foregroundAnsi(SILVER, mode)}Nusa${foregroundAnsi(GREEN, mode)}Code${RESET}`)} ${theme.fg("muted", "setup")}`;
-  const counter = theme.fg("dim", `step ${current + 1} of ${input.labels.length}`);
+  const brand = `${theme.bold(`${foregroundAnsi(SILVER, mode)}Nusa${foregroundAnsi(GREEN, mode)}Code${RESET}`)} ${theme.fg("muted", m("setup"))}`;
+  const counter = theme.fg("dim", m("step", { n: current + 1, total: input.labels.length }));
   const gap = column.width - visibleWidth(brand) - visibleWidth(counter);
   const top = gap >= 2 ? `${brand}${" ".repeat(gap)}${counter}` : brand;
 
@@ -315,7 +321,7 @@ export class SetupWizard implements Component {
         states: this.states,
         title: step.title,
         subtitle: step.subtitle,
-        hints: `${step.hints()} · ctrl+c exit setup`,
+        hints: `${step.hints()} · ${m("exit")}`,
         body: (bodyWidth, maxLines) => step.render(bodyWidth, maxLines),
       });
       // A resize mid-dissolve leaves the old frame the wrong shape; just cut to the new one.

@@ -25,19 +25,28 @@ export const CAPABILITIES_FILE = "model-capabilities.json";
 export const DEFAULT_MAX_OUTPUT = 16_384;
 
 /**
- * Checked on 2026-11-07 by sending each catalog model a solid red and a solid blue
- * image through the gateway: these named both colours. The rest either got a 400
- * ("does not accept images") or answered as if no image had arrived, which is what
- * the GPT and Grok models on the gateway did, so marking them would only send
- * pictures that are dropped on the way.
+ * Checked on 2026-11-07 by sending each catalog model solid red and blue 32x32 and
+ * 64x64 images through the gateway: these named the colours. The four left out
+ * (deepseek-v4-pro, glm-5.3, qwen3.8-27b, qwen3.8-max) get a 400, "does not accept
+ * images". At 16x16 the GPT, Grok and MiniMax models answered as if no image had
+ * arrived, so a test image for them has to be bigger than that; real screenshots are.
  */
 export const BUILT_IN: Record<string, Capabilities> = {
   "deepseek-v4.1-flash": { vision: true },
   "gemini-3.8-flash": { vision: true },
   "glm-5.3-flash": { vision: true },
+  "gpt-5.6-luna": { vision: true },
+  "gpt-5.6-sol": { vision: true },
   "gpt-5.6-terra": { vision: true },
+  "gpt-6-astra": { vision: true },
+  "gpt-6-luna": { vision: true },
+  "gpt-6-sol": { vision: true },
+  "gpt-6.1-sol": { vision: true },
+  "grok-4.7": { vision: true },
   "kimi-k3": { vision: true },
   "kimi-k3.1-pro": { vision: true },
+  "minimax-m3": { vision: true },
+  "minimax-m3.1-flash": { vision: true },
   "qwen3.8-flash": { vision: true },
   "qwen3.8-max-0902": { vision: true },
 };

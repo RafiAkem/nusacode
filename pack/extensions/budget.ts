@@ -16,6 +16,58 @@ import { agentDir } from "../lib/home.ts";
 import { describe, levelOf, parseCommand, raisedLimit, readDefaults, writeDefaults, type Limits } from "../lib/budget.ts";
 import { idr } from "../lib/money.ts";
 import { COST_CHANNEL, type CostEvent } from "./meter.ts";
+import { messages } from "../lib/i18n.ts";
+
+const t = messages(
+  {
+    status: "budget {left} left",
+    reached: "Session budget reached: {spent} of {limit}. Stopping. Send a message to raise the limit, or use /budget.",
+    warn: "{spent} of the {limit} session budget is spent.",
+    turnWarn: "This prompt has cost {spent} so far (warning at {limit}). Press escape to stop it.",
+    unpricedWarn:
+      "A response had no price, and the budget can't count responses without a price (NusaGate's prices didn't load, or this model isn't in its catalog), so spending can pass the limit without a warning.",
+    reachedNothingSent: "Session budget of {limit} reached (spent {spent}). Nothing was sent.",
+    raise: "Raise the limit to {next} and send",
+    remove: "Send without a limit",
+    dontSend: "Don't send",
+    reachedTitle: "Session budget of {limit} reached (spent {spent})",
+    description: "Set a spending limit: /budget 5000, /budget turn 500, /budget off. Add --default to keep it",
+    someUnpriced: "Some responses had no price, so what is counted here is a minimum.",
+    sessionRemoved: "Session budget removed.",
+    sessionSet: "Session budget set to {amount}.",
+    promptRemoved: "Prompt warning removed.",
+    promptSet: "Prompt warning set to {amount}.",
+    appliesToNew: "It will apply to new sessions too.",
+    couldNotSave: "Could not save it for new sessions: {error}",
+    alreadySpent: "{spent} is already spent, so the next message will ask what to do.",
+    noteUnpriced:
+      "Note: some responses so far had no price, and the budget can't count responses without a price (NusaGate's prices didn't load, or this model isn't in its catalog), so spending can pass the limit without a warning.",
+  },
+  {
+    status: "anggaran sisa {left}",
+    reached: "Anggaran sesi tercapai: {spent} dari {limit}. Dihentikan. Kirim pesan untuk menaikkan batas, atau pakai /budget.",
+    warn: "{spent} dari anggaran sesi {limit} sudah terpakai.",
+    turnWarn: "Prompt ini sudah memakan biaya {spent} (peringatan di {limit}). Tekan escape untuk menghentikannya.",
+    unpricedWarn:
+      "Ada respons tanpa harga, dan anggaran tidak bisa menghitung respons tanpa harga (harga NusaGate gagal dimuat, atau model ini tidak ada di katalognya), jadi pengeluaran bisa melewati batas tanpa peringatan.",
+    reachedNothingSent: "Anggaran sesi {limit} tercapai (terpakai {spent}). Tidak ada yang dikirim.",
+    raise: "Naikkan batas ke {next} lalu kirim",
+    remove: "Kirim tanpa batas",
+    dontSend: "Jangan kirim",
+    reachedTitle: "Anggaran sesi {limit} tercapai (terpakai {spent})",
+    description: "Atur batas pengeluaran: /budget 5000, /budget turn 500, /budget off. Tambahkan --default supaya tetap berlaku",
+    someUnpriced: "Beberapa respons tidak punya harga, jadi yang terhitung di sini adalah angka minimum.",
+    sessionRemoved: "Anggaran sesi dihapus.",
+    sessionSet: "Anggaran sesi diatur ke {amount}.",
+    promptRemoved: "Peringatan prompt dihapus.",
+    promptSet: "Peringatan prompt diatur ke {amount}.",
+    appliesToNew: "Ini juga berlaku untuk sesi baru.",
+    couldNotSave: "Tidak bisa menyimpannya untuk sesi baru: {error}",
+    alreadySpent: "{spent} sudah terpakai, jadi pesan berikutnya akan menanyakan apa yang mau dilakukan.",
+    noteUnpriced:
+      "Catatan: ada respons sejauh ini yang tidak punya harga, dan anggaran tidak bisa menghitung respons tanpa harga (harga NusaGate gagal dimuat, atau model ini tidak ada di katalognya), jadi pengeluaran bisa melewati batas tanpa peringatan.",
+  },
+);
 
 const STATUS_KEY = "nusa-budget";
 
@@ -42,7 +94,7 @@ export default function budget(pi: ExtensionAPI) {
       return;
     }
     const left = Math.max(0, limits.sessionIdr - spent);
-    ctx.ui.setStatus(STATUS_KEY, `budget ${idr(left)} left`);
+    ctx.ui.setStatus(STATUS_KEY, t("status", { left: idr(left) }));
   }
 
   /** Warns, or stops the agent, whenever spending crosses a limit. */
@@ -52,19 +104,16 @@ export default function budget(pi: ExtensionAPI) {
     if (level === "over") {
       if (!stopped) {
         stopped = true;
-        ctx.ui.notify(
-          `Session budget reached: ${idr(spent)} of ${idr(limits.sessionIdr as number)}. Stopping. Send a message to raise the limit, or use /budget.`,
-          "error",
-        );
+        ctx.ui.notify(t("reached", { spent: idr(spent), limit: idr(limits.sessionIdr as number) }), "error");
         if (!ctx.isIdle()) ctx.abort();
       }
     } else if (level === "warn" && !warned) {
       warned = true;
-      ctx.ui.notify(`${idr(spent)} of the ${idr(limits.sessionIdr as number)} session budget is spent.`, "warning");
+      ctx.ui.notify(t("warn", { spent: idr(spent), limit: idr(limits.sessionIdr as number) }), "warning");
     }
     if (inPrompt && limits.turnIdr !== null && !warnedTurn && turnSpent() >= limits.turnIdr) {
       warnedTurn = true;
-      ctx.ui.notify(`This prompt has cost ${idr(turnSpent())} so far (warning at ${idr(limits.turnIdr)}). Press escape to stop it.`, "warning");
+      ctx.ui.notify(t("turnWarn", { spent: idr(turnSpent()), limit: idr(limits.turnIdr) }), "warning");
     }
   }
 
@@ -105,7 +154,7 @@ export default function budget(pi: ExtensionAPI) {
     if (!lastCtx) return;
     if (event.unpriced && limits.sessionIdr !== null && !warnedUnpriced) {
       warnedUnpriced = true;
-      lastCtx.ui.notify(`A response had no price, and the budget can't count responses without a price (NusaGate's prices didn't load, or this model isn't in its catalog), so spending can pass the limit without a warning.`, "warning");
+      lastCtx.ui.notify(t("unpricedWarn"), "warning");
     }
     check(lastCtx);
   });
@@ -123,12 +172,12 @@ export default function budget(pi: ExtensionAPI) {
     const limit = limits.sessionIdr;
     const next = raisedLimit(spent, limit);
     if (!ctx.hasUI) {
-      ctx.ui.notify(`Session budget of ${idr(limit)} reached (spent ${idr(spent)}). Nothing was sent.`, "error");
+      ctx.ui.notify(t("reachedNothingSent", { limit: idr(limit), spent: idr(spent) }), "error");
       return { action: "handled" as const };
     }
-    const raise = `Raise the limit to ${idr(next)} and send`;
-    const remove = "Send without a limit";
-    const choice = await ctx.ui.select(`Session budget of ${idr(limit)} reached (spent ${idr(spent)})`, [raise, remove, "Don't send"]);
+    const raise = t("raise", { next: idr(next) });
+    const remove = t("remove");
+    const choice = await ctx.ui.select(t("reachedTitle", { limit: idr(limit), spent: idr(spent) }), [raise, remove, t("dontSend")]);
     if (choice === raise) limits.sessionIdr = next;
     else if (choice === remove) limits.sessionIdr = null;
     else {
@@ -142,7 +191,7 @@ export default function budget(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("budget", {
-    description: "Set a spending limit: /budget 5000, /budget turn 500, /budget off. Add --default to keep it",
+    description: t("description"),
     handler: async (args, ctx) => {
       lastCtx = ctx;
       const command = parseCommand(args);
@@ -152,7 +201,7 @@ export default function budget(pi: ExtensionAPI) {
       }
       if (command.kind === "show") {
         const lines = [describe(limits, spent, turnSpent(), defaults)];
-        if (unpriced) lines.push("Some responses had no price, so what is counted here is a minimum.");
+        if (unpriced) lines.push(t("someUnpriced"));
         ctx.ui.notify(lines.join("\n"), "info");
         return;
       }
@@ -164,23 +213,27 @@ export default function budget(pi: ExtensionAPI) {
       } else {
         warnedTurn = false;
       }
-      const name = command.target === "session" ? "Session budget" : "Prompt warning";
-      const parts = [command.amount === null ? `${name} removed.` : `${name} set to ${idr(command.amount)}.`];
+      const session = command.target === "session";
+      const parts = [
+        command.amount === null
+          ? t(session ? "sessionRemoved" : "promptRemoved")
+          : t(session ? "sessionSet" : "promptSet", { amount: idr(command.amount) }),
+      ];
       if (command.remember) {
         defaults = { ...defaults, [key]: command.amount };
         try {
           writeDefaults(agentDir(), defaults);
-          parts.push("It will apply to new sessions too.");
+          parts.push(t("appliesToNew"));
         } catch (err) {
-          parts.push(`Could not save it for new sessions: ${err instanceof Error ? err.message : String(err)}`);
+          parts.push(t("couldNotSave", { error: err instanceof Error ? err.message : String(err) }));
         }
       }
-      if (command.target === "session" && command.amount !== null && spent >= command.amount) {
-        parts.push(`${idr(spent)} is already spent, so the next message will ask what to do.`);
+      if (session && command.amount !== null && spent >= command.amount) {
+        parts.push(t("alreadySpent", { spent: idr(spent) }));
       }
       if (command.amount !== null && unpriced) {
         warnedUnpriced = true;
-        parts.push(`Note: some responses so far had no price, and the budget can't count responses without a price (NusaGate's prices didn't load, or this model isn't in its catalog), so spending can pass the limit without a warning.`);
+        parts.push(t("noteUnpriced"));
       }
       ctx.ui.notify(parts.join(" "), "info");
       showStatus(ctx);

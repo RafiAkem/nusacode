@@ -17,6 +17,14 @@ import { join } from "node:path";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { agentDir } from "../lib/home.ts";
+import { messages } from "../lib/i18n.ts";
+
+// Only the live progress line is for the person; the tool's description, its
+// parameters and every result the model reads stay English.
+const t = messages(
+  { progress: "{agent}: {calls} tool call(s), {tokens} tok" },
+  { progress: "{agent}: {calls} panggilan tool, {tokens} tok" },
+);
 
 const DEFAULT_MODEL = "nusagate/deepseek-v4.1-flash";
 const DEFAULT_TOOLS = "read,grep,find,ls";
@@ -225,7 +233,7 @@ export function runAgent(
     }
     if (answer.trim()) text = answer;
     onUpdate?.({
-      content: [{ type: "text", text: `${agent.name}: ${toolCalls} tool call(s), ${formatTokens(totalUsage(usage))} tok` }],
+      content: [{ type: "text", text: t("progress", { agent: agent.name, calls: toolCalls, tokens: formatTokens(totalUsage(usage)) }) }],
       details: { agent: agent.name, toolCalls, usage },
     });
   };

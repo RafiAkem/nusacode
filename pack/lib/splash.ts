@@ -24,6 +24,10 @@
 import type { Color } from "@earendil-works/pi-tui";
 import { foregroundAnsi, mixColors, parseColor } from "@earendil-works/pi-tui";
 import { LOGO, GLYPHS as LOGO_GLYPHS, SHADES as LOGO_SHADES } from "../extensions/brand.ts";
+import { messages } from "./i18n.ts";
+
+const EN = { tagline: "A coding agent that shows what every prompt costs", hint: "press enter to continue" };
+const t = messages(EN, { tagline: "Coding agent yang menunjukkan biaya setiap prompt", hint: "tekan enter untuk lanjut" });
 
 /** The wizard moves on after this, unless a key gets there first. */
 export const SPLASH_MS = 3_000;
@@ -76,11 +80,12 @@ const WORD_SCRAMBLE_MS = 220;
 /** ASCII only: a glyph wider than it measures wraps the row. */
 const SCRAMBLE = "#%*+=-<>/\\|[]{}?!";
 
-export const TAGLINE = "A coding agent that shows what every prompt costs";
+/** The English lines, for tests; the frame draws whichever language is in use. */
+export const TAGLINE = EN.tagline;
 const TAGLINE_START_MS = 1_950;
 const TAGLINE_FADE_MS = 300;
 
-export const SKIP_HINT = "press enter to continue";
+export const SKIP_HINT = EN.hint;
 const HINT_START_MS = SPLASH_SETTLED_MS;
 
 /** Below this there is no room for the mark, and the splash keeps just the words. */
@@ -369,16 +374,18 @@ export function renderSplash(width: number, height: number, elapsedMs: number, m
   }
 
   // 5. The tagline fades up from the dark once the name is readable.
-  if (taglineRow < hintRow && elapsed >= TAGLINE_START_MS && TAGLINE.length + 2 <= w) {
+  const tagline = t("tagline");
+  if (taglineRow < hintRow && elapsed >= TAGLINE_START_MS && tagline.length + 2 <= w) {
     const fade = clamp01((elapsed - TAGLINE_START_MS) / TAGLINE_FADE_MS);
     const color = mixColors(DEEP, FAINT, fade, "srgb");
-    const left = Math.floor((w - TAGLINE.length) / 2);
-    for (let i = 0; i < TAGLINE.length; i++) if (TAGLINE[i] !== " ") put(left + i, taglineRow, TAGLINE[i], color);
+    const left = Math.floor((w - tagline.length) / 2);
+    for (let i = 0; i < tagline.length; i++) if (tagline[i] !== " ") put(left + i, taglineRow, tagline[i]!, color);
   }
 
   // 6. The hint, only once there is nothing left to wait for.
   if (elapsed >= HINT_START_MS && h > 1) {
-    const hint = SKIP_HINT.length <= w ? SKIP_HINT : "enter";
+    const full = t("hint");
+    const hint = full.length <= w ? full : "enter";
     const left = Math.max(0, Math.floor((w - hint.length) / 2));
     for (let i = 0; i < hint.length; i++) if (hint[i] !== " ") put(left + i, hintRow, hint[i], mixColors(DEEP, FAINT, 0.7, "srgb"));
   }

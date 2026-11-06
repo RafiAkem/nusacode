@@ -77,7 +77,7 @@ what that cost. The session and its costs are real; only the balance is sample d
 | `/skills` | List learned skills, and the ones waiting for your approval. `/skills review` goes through them, and `/skills delete <name>` removes one |
 | `/import-config` | Import skills and instructions from other coding agents |
 | `/setup` | Run first-time setup again: language, API key, default model, import |
-| `/language` | Choose the language the agent replies in: English, Bahasa Indonesia, or whatever you write in. `/language id` sets it directly |
+| `/language` | Switch NusaCode's screens between English and Bahasa Indonesia. `/language id` or `/language en` sets it directly |
 | `/sessions` | Switch session in one step; add words to filter, or `all` to search every folder |
 | `/resume` | Continue an earlier session |
 | `/plan` | Toggle plan mode, where the agent can read but not change anything. `/plan ask` makes it ask before each change. See [Plan mode](#plan-mode) |
@@ -221,8 +221,10 @@ throw away the provider's prompt cache. It is checked again at approval, in case
 <br>
 
 Setup runs once, on your first new session, as a full-screen wizard. It opens with NusaGate's mark: the N
-forms, and a light draws the halo around it. First you pick the language the agent replies in (NusaCode's own
-screens stay English). Then it asks for your API key, checks it
+forms, and a light draws the halo around it. First you pick NusaCode's language, English or Bahasa Indonesia; the
+wizard switches as you move between them. It covers NusaCode's own screens (setup, the welcome screen, the footer,
+`/usage` and the other NusaCode commands), not pi's built-in screens, and the agent still replies in whatever
+language you write in. Then it asks for your API key, checks it
 against NusaGate (showing your balance), and stores it in `auth.json` in the NusaCode home. Next you pick a
 default model from NusaGate's list, showing each one's context window, price in rupiah (and dollars for reference) and whether it takes images. Then it lists the other agents it found,
 and you tick which ones to copy skills and global instructions from. The last screen sums up what was set. Esc
@@ -282,15 +284,14 @@ resolves at startup before the network finishes. The catalog has no capability f
 uses the same limits: text input and 16,384 output tokens. DeepSeek models are registered as reasoning models, so `/thinking` works on them; other models have no thinking levels.
 
 The catalog doesn't say which models can see images or how long a reply may be, and NusaCode only lists what it has
-checked. Models that take images are marked `(vision)` in `/model`: DeepSeek V4.1 Flash, Gemini 3.8 Flash, GLM 5.3
-Flash, GPT-5.6 Terra, Kimi K3, Kimi K3.1 Pro, Qwen 3.8 Flash and Qwen 3.8 Max 0902 each named the colour of a test
-image sent through the gateway. If you know more about a model, say so in
+checked. Models that take images are marked `(vision)` in `/model`: every model on NusaGate except DeepSeek V4 Pro, GLM 5.3,
+Qwen 3.8 27B and Qwen 3.8 Max, checked by sending each one a test image through the gateway. If you know more about a model, say so in
 `model-capabilities.json` in the NusaCode home, by model id or by a prefix ending in `*`. An exact id wins over a
 prefix, and your file wins over NusaCode's own list:
 
 ```json
 {
-  "gpt-6-sol": { "vision": true, "maxOutput": 32768 },
+  "gpt-6-sol": { "maxOutput": 32768 },
   "qwen3.8-*": { "contextWindow": 262144 }
 }
 ```

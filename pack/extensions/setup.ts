@@ -20,6 +20,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { BALANCE_URL, CATALOG_CHANNEL, KEY_CHANNEL, parsePrice, type Price } from "./meter.ts";
 import { agentDir } from "../lib/home.ts";
 import { DEFAULT_LANGUAGE, LANGUAGES, readLanguage, writeLanguage, type LanguageId } from "../lib/language.ts";
+import { locale, messages, setLocale } from "../lib/i18n.ts";
 import {
   importStep,
   keyStep,
@@ -61,6 +62,57 @@ const ALREADY_LOADED = [".agents/skills"];
 export type FoundSkill = { name: string; dir: string };
 export type ImportSource = { label: string; skills: FoundSkill[]; instructions: string | null };
 export type ImportResult = { imported: string[]; skipped: string[]; instructions: boolean };
+
+const t = messages(
+  {
+    skills: "{count} skill(s): {names}",
+    more: ", +{count} more",
+    instructions: "Global instructions: {file}",
+    willLoad: "These will load in your NusaCode sessions. API keys and MCP servers are not copied.",
+    importFrom: "Import from {label}?",
+    imported: "Imported {count} skill(s). They apply from your next session.",
+    importedWithInstructions: "Imported {count} skill(s) and global instructions. They apply from your next session.",
+    skipped: "Skipped (already there or too large): {names}",
+    keyTitle: "NusaGate API key (get one at {url})",
+    keyRejected: "NusaGate rejected that API key. Try again:",
+    authUnreadable: "Could not read auth.json, so the API key was not saved. Set NUSAGATE_API_KEY instead.",
+    keyUnchecked: "Could not reach NusaGate, so the API key was saved without being checked.",
+    noKey: "No API key yet. Run /setup or set NUSAGATE_API_KEY.",
+    authUnreadableShort: "auth.json could not be read, so the key was not saved. Set NUSAGATE_API_KEY instead.",
+    languageNotSaved: "The language could not be saved: {message}",
+    closed: "Setup closed. Run /setup whenever you want it back.",
+    complete: "Setup complete.",
+    failed: "Setup failed: {message}",
+    setupDescription: "Run first-time setup again: language, API key, default model and import from other agents",
+    importDescription: "Import skills and instructions from Claude Code, Codex, oh-my-pi, pi, or OpenCode",
+    nothingToImport: "Nothing to import: no new skills or instructions from other agents.",
+    nothingImported: "Nothing was imported.",
+  },
+  {
+    skills: "{count} skill: {names}",
+    more: ", +{count} lagi",
+    instructions: "Instruksi global: {file}",
+    willLoad: "Ini akan dipakai di sesi NusaCode kamu. API key dan server MCP tidak ikut disalin.",
+    importFrom: "Impor dari {label}?",
+    imported: "{count} skill diimpor. Mulai dipakai di sesi berikutnya.",
+    importedWithInstructions: "{count} skill dan instruksi global diimpor. Mulai dipakai di sesi berikutnya.",
+    skipped: "Dilewati (sudah ada atau terlalu besar): {names}",
+    keyTitle: "API key NusaGate (buat di {url})",
+    keyRejected: "NusaGate menolak API key itu. Coba lagi:",
+    authUnreadable: "auth.json tidak bisa dibaca, jadi API key tidak disimpan. Atur NUSAGATE_API_KEY sebagai gantinya.",
+    keyUnchecked: "NusaGate tidak bisa dihubungi, jadi API key disimpan tanpa dicek.",
+    noKey: "Belum ada API key. Jalankan /setup atau atur NUSAGATE_API_KEY.",
+    authUnreadableShort: "auth.json tidak bisa dibaca, jadi key tidak disimpan. Atur NUSAGATE_API_KEY sebagai gantinya.",
+    languageNotSaved: "Bahasa tidak bisa disimpan: {message}",
+    closed: "Setup ditutup. Jalankan /setup kapan saja kalau mau membukanya lagi.",
+    complete: "Setup selesai.",
+    failed: "Setup gagal: {message}",
+    setupDescription: "Jalankan setup awal lagi: bahasa, API key, model default, dan impor dari agent lain",
+    importDescription: "Impor skill dan instruksi dari Claude Code, Codex, oh-my-pi, pi, atau OpenCode",
+    nothingToImport: "Tidak ada yang bisa diimpor: tidak ada skill atau instruksi baru dari agent lain.",
+    nothingImported: "Tidak ada yang diimpor.",
+  },
+);
 
 function nusacodeHome(): string {
   return agentDir();
@@ -219,10 +271,10 @@ function describeSource(source: ImportSource): string {
   if (source.skills.length > 0) {
     const names = source.skills.slice(0, NAMES_IN_PROMPT).map((skill) => skill.name);
     const more = source.skills.length - names.length;
-    parts.push(`${source.skills.length} skill(s): ${names.join(", ")}${more > 0 ? `, +${more} more` : ""}`);
+    parts.push(`${t("skills", { count: source.skills.length, names: names.join(", ") })}${more > 0 ? t("more", { count: more }) : ""}`);
   }
-  if (source.instructions) parts.push(`Global instructions: ${basename(source.instructions)}`);
-  parts.push("These will load in your NusaCode sessions. API keys and MCP servers are not copied.");
+  if (source.instructions) parts.push(t("instructions", { file: basename(source.instructions) }));
+  parts.push(t("willLoad"));
   return parts.join("\n");
 }
 
@@ -234,7 +286,7 @@ async function runImport(ctx: ExtensionContext): Promise<ImportResult[]> {
   for (const { label } of scanSources(homedir(), skillsDir)) {
     const source = scanSources(homedir(), skillsDir).find((candidate) => candidate.label === label);
     if (!source) continue;
-    if (!(await ctx.ui.confirm(`Import from ${source.label}?`, describeSource(source)))) continue;
+    if (!(await ctx.ui.confirm(t("importFrom", { label: source.label }), describeSource(source)))) continue;
     results.push(importSource(source, home));
   }
   return results;
@@ -257,8 +309,8 @@ function importSummary(results: ImportResult[]): string | null {
   const skipped = results.flatMap((result) => result.skipped);
   const instructions = results.some((result) => result.instructions);
   if (imported.length === 0 && !instructions && skipped.length === 0) return null;
-  const lines = [`Imported ${imported.length} skill(s)${instructions ? " and global instructions" : ""}. They apply from your next session.`];
-  if (skipped.length > 0) lines.push(`Skipped (already there or too large): ${skipped.join(", ")}`);
+  const lines = [t(instructions ? "importedWithInstructions" : "imported", { count: imported.length })];
+  if (skipped.length > 0) lines.push(t("skipped", { names: skipped.join(", ") }));
   return lines.join("\n");
 }
 
@@ -267,17 +319,17 @@ export default function setup(pi: ExtensionAPI) {
 
   async function askForKey(ctx: ExtensionContext): Promise<void> {
     if (await ctx.modelRegistry.getApiKeyForProvider(PROVIDER).catch(() => undefined)) return;
-    let title = `NusaGate API key (get one at ${API_KEYS_URL})`;
+    let title = t("keyTitle", { url: API_KEYS_URL });
     for (let attempt = 0; attempt < KEY_ATTEMPTS; attempt++) {
       const key = (await ctx.ui.input(title, "nsk_..."))?.trim();
       if (!key) break;
       const check = await checkApiKey(key);
       if (check === "rejected") {
-        title = "NusaGate rejected that API key. Try again:";
+        title = t("keyRejected");
         continue;
       }
       if (!saveApiKey(nusacodeHome(), key)) {
-        ctx.ui.notify("Could not read auth.json, so the API key was not saved. Set NUSAGATE_API_KEY instead.", "error");
+        ctx.ui.notify(t("authUnreadable"), "error");
         return;
       }
       // pi resolves the configured key from this variable for the rest of the session.
@@ -289,10 +341,10 @@ export default function setup(pi: ExtensionAPI) {
         const model = ctx.modelRegistry.find(PROVIDER, DEFAULT_MODEL);
         if (model) await pi.setModel(model);
       }
-      if (check === "unreachable") ctx.ui.notify("Could not reach NusaGate, so the API key was saved without being checked.", "warning");
+      if (check === "unreachable") ctx.ui.notify(t("keyUnchecked"), "warning");
       return;
     }
-    ctx.ui.notify("No API key yet. Run /setup or set NUSAGATE_API_KEY.", "warning");
+    ctx.ui.notify(t("noKey"), "warning");
   }
 
   /** Prices from the gateway catalog, for the model step. meter.ts fetches it each session. */
@@ -311,7 +363,7 @@ export default function setup(pi: ExtensionAPI) {
    * message when it could not be saved.
    */
   async function storeKey(ctx: ExtensionContext, key: string): Promise<string | null> {
-    if (!saveApiKey(nusacodeHome(), key)) return "auth.json could not be read, so the key was not saved. Set NUSAGATE_API_KEY instead.";
+    if (!saveApiKey(nusacodeHome(), key)) return t("authUnreadableShort");
     // pi resolves the configured key from this variable for the rest of the session.
     process.env.NUSAGATE_API_KEY = key;
     pi.events.emit(KEY_CHANNEL, { key });
@@ -359,22 +411,26 @@ export default function setup(pi: ExtensionAPI) {
   async function runWizard(ctx: ExtensionContext): Promise<boolean> {
     const existingKey = (await ctx.modelRegistry.getApiKeyForProvider(PROVIDER).catch(() => undefined)) ?? null;
     const summary: SetupSummary = { language: null, key: null, model: null, imports: null };
+    // The language step redraws the wizard in whichever language is highlighted;
+    // if setup is closed before one is chosen, the old one comes back.
+    const startLocale = locale();
     let hasKey = Boolean(existingKey);
     const steps: StepDefinition[] = [
       languageStep({
         languages: LANGUAGES,
         current: readLanguage(nusacodeHome()),
         fallback: DEFAULT_LANGUAGE,
+        preview: (id) => setLocale(id as LanguageId),
         save: (id) => {
           try {
             writeLanguage(nusacodeHome(), id as LanguageId);
             return null;
           } catch (err) {
-            return `The language could not be saved: ${err instanceof Error ? err.message : String(err)}`;
+            return t("languageNotSaved", { message: err instanceof Error ? err.message : String(err) });
           }
         },
         onChosen: (choice) => {
-          summary.language = choice.id === "auto" ? "the language you write in" : choice.label;
+          summary.language = choice.label;
         },
       }),
       keyStep({
@@ -407,11 +463,12 @@ export default function setup(pi: ExtensionAPI) {
     steps.push(readyStep(() => summary));
 
     const outcome = await runSetupWizard(ctx, steps, { splash: process.env.NUSACODE_NO_SPLASH !== "1" });
+    if (summary.language === null) setLocale(startLocale);
     if (outcome === null) return false;
     // Marked whether it was finished or closed with ctrl+c: closing it is an answer too.
     markSetupDone(nusacodeHome());
-    if (outcome === "cancelled") ctx.ui.notify("Setup closed. Run /setup whenever you want it back.", "info");
-    else if (summary.key?.kind === "skipped") ctx.ui.notify("No API key yet. Run /setup or set NUSAGATE_API_KEY.", "warning");
+    if (outcome === "cancelled") ctx.ui.notify(t("closed"), "info");
+    else if (summary.key?.kind === "skipped") ctx.ui.notify(t("noKey"), "warning");
     return true;
   }
 
@@ -421,7 +478,7 @@ export default function setup(pi: ExtensionAPI) {
     await askForKey(ctx);
     const summary = importSummary(await runImport(ctx));
     markSetupDone(nusacodeHome());
-    ctx.ui.notify(summary ? `Setup complete.\n${summary}` : "Setup complete.", "info");
+    ctx.ui.notify(summary ? `${t("complete")}\n${summary}` : t("complete"), "info");
   }
 
   pi.on("session_start", (event, ctx) => {
@@ -430,28 +487,28 @@ export default function setup(pi: ExtensionAPI) {
     if (ctx.sessionManager.getEntries().some((entry) => entry.type === "message")) return;
     // Not awaited: session_start handlers block startup, and dialogs need it finished.
     void runSetup(ctx).catch((err: unknown) => {
-      ctx.ui.notify(`Setup failed: ${err instanceof Error ? err.message : String(err)}`, "error");
+      ctx.ui.notify(t("failed", { message: err instanceof Error ? err.message : String(err) }), "error");
     });
   });
 
   pi.registerCommand("setup", {
-    description: "Run first-time setup again: language, API key, default model and import from other agents",
+    description: t("setupDescription"),
     handler: async (_args, ctx) => runSetup(ctx),
   });
 
   pi.registerCommand("import-config", {
-    description: "Import skills and instructions from Claude Code, Codex, oh-my-pi, pi, or OpenCode",
+    description: t("importDescription"),
     handler: async (_args, ctx) => {
       if (ctx.mode === "tui" && ctx.hasUI) {
         const sources = importChoices();
         if (sources.length === 0) {
-          ctx.ui.notify("Nothing to import: no new skills or instructions from other agents.", "info");
+          ctx.ui.notify(t("nothingToImport"), "info");
           return;
         }
         if ((await runSetupWizard(ctx, [importStepFor(sources, () => {})], { splash: false })) !== null) return;
       }
       const summary = importSummary(await runImport(ctx));
-      ctx.ui.notify(summary ?? "Nothing was imported.", "info");
+      ctx.ui.notify(summary ?? t("nothingImported"), "info");
     },
   });
 }

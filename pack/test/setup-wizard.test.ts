@@ -27,6 +27,8 @@ import {
   type KeyOutcome,
   type ModelChoice,
 } from "../lib/setup-steps.ts";
+import { locale, setLocale } from "../lib/i18n.ts";
+import { LANGUAGES } from "../lib/language.ts";
 
 // The wizard's timer is unref'd so it can't hold the CLI open; keep the loop alive for awaits.
 const keepAlive = setInterval(() => {}, 1_000);
@@ -461,55 +463,96 @@ test("the closing screen lands row by row, and enter finishes", () => {
   assert.deepEqual(h.results, ["done"]);
 });
 
-const LANGS = [
-  { id: "en", label: "English", sample: "Done. I fixed the two failing tests." },
-  { id: "id", label: "Bahasa Indonesia", sample: "Selesai. Dua tes yang gagal sudah saya perbaiki." },
-  { id: "auto", label: "Match my messages", sample: "Replies in whatever language you write in" },
-];
 
 function languageHarness(current: string | null = null, saveError: string | null = null) {
   const h = stepHarness();
   const saved: string[] = [];
   const chosen: string[] = [];
+  const previewed: string[] = [];
   const step = languageStep({
-    languages: LANGS,
+    languages: LANGUAGES,
     current,
     fallback: "en",
+    preview: (id) => {
+      previewed.push(id);
+      setLocale(id as "en" | "id");
+    },
     save: (id) => (saved.push(id), saveError),
     onChosen: (c) => chosen.push(c.id),
   }).create(h.host);
-  return { ...h, step, saved, chosen };
+  return { ...h, step, saved, chosen, previewed };
 }
 
-test("the language step starts on English, shows a sample of each, and saves the pick", () => {
+test("the language step starts on English and shows each language in its own words", (t) => {
+  t.after(() => setLocale("en"));
   const l = languageHarness();
   const text = body(l.step, 100);
-  assert.match(text, /❯ English\s+Done\. I fixed/);
-  assert.match(text, /Bahasa Indonesia\s+Selesai\./);
+  assert.match(text, /❯ English\s+Welcome!/);
+  assert.match(text, /Bahasa Indonesia\s+Selamat datang!/);
+  assert.equal(l.step.title, "Choose your language");
+});
+
+test("moving to a language redraws the step in it, and enter saves it", (t) => {
+  t.after(() => setLocale("en"));
+  const l = languageHarness();
   l.step.handleInput(DOWN);
+  assert.deepEqual(l.previewed, ["en", "id"]);
+  assert.equal(locale(), "id");
+  assert.equal(l.step.title, "Pilih bahasa");
+  assert.match(l.step.hints(), /pindah/);
   l.step.handleInput(ENTER);
   assert.deepEqual(l.saved, ["id"]);
   assert.deepEqual(l.chosen, ["id"]);
   assert.deepEqual(l.results, ["done"]);
 });
 
-test("the language step starts on the saved language and marks it, and number keys jump", () => {
-  const l = languageHarness("auto");
-  assert.match(body(l.step, 100), /❯ Match my messages.*current/);
-  l.step.handleInput("2");
+test("the language step starts on the saved language and marks it, and number keys jump", (t) => {
+  t.after(() => setLocale("en"));
+  const l = languageHarness("id");
+  assert.match(body(l.step, 100), /❯ Bahasa Indonesia.*saat ini/);
+  l.step.handleInput("1");
+  assert.equal(locale(), "en");
   l.step.handleInput(ENTER);
-  assert.deepEqual(l.saved, ["id"]);
+  assert.deepEqual(l.saved, ["en"]);
 });
 
-test("a language that can't be saved stays on the step with the reason", () => {
+test("a language that can't be saved stays on the step with the reason", (t) => {
+  t.after(() => setLocale("en"));
   const l = languageHarness(null, "disk full");
   l.step.handleInput(ENTER);
   assert.match(body(l.step), /disk full/);
   assert.deepEqual(l.results, []);
 });
 
-test("the summary says which language the agent replies in", () => {
+test("the whole wizard frame follows the language, step labels included", async (t) => {
+  t.after(() => setLocale("en"));
+  const steps = [
+    languageStep({ languages: LANGUAGES, current: null, fallback: "en", preview: (id) => setLocale(id as "en" | "id"), save: () => null, onChosen: () => {} }),
+    readyStep(() => ({ key: { kind: "skipped" }, model: null, imports: null })),
+  ];
+  const { wizard } = makeWizard(steps);
+  assert.match(plain(wizard.render(80)).join("\n"), /step 1 of 2[\s\S]*● Language ── ○ Ready[\s\S]*ctrl\+c exit setup/);
+  wizard.handleInput(DOWN);
+  const indonesian = plain(wizard.render(80)).join("\n");
+  assert.match(indonesian, /● Bahasa ── ○ Siap/);
+  assert.match(indonesian, /langkah 1 dari 2/);
+  assert.match(indonesian, /Pilih bahasa/);
+  assert.match(indonesian, /ctrl\+c keluar/);
+  wizard.handleInput(ENTER);
+  await sleep(400);
+  const ready = plain(wizard.render(80)).join("\n");
+  assert.match(ready, /Semua sudah siap/);
+  wizard.dispose();
+});
+
+test("the summary names the language NusaCode is in", (t) => {
+  t.after(() => setLocale("en"));
   assert.deepEqual(summaryLines({ language: "Bahasa Indonesia", key: null, model: null, imports: null }), [
-    { tone: "success", text: "Replies in Bahasa Indonesia" },
+    { tone: "success", text: "NusaCode is in Bahasa Indonesia" },
+  ]);
+  setLocale("id");
+  assert.deepEqual(summaryLines({ language: "Bahasa Indonesia", key: { kind: "saved", status: "ok", balanceIdr: 5_000 }, model: null, imports: null }), [
+    { tone: "success", text: "NusaCode memakai Bahasa Indonesia" },
+    { tone: "success", text: "Terhubung ke NusaGate · saldo Rp 5.000" },
   ]);
 });

@@ -14,6 +14,54 @@ import type { Component } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { getLanguageFromPath, highlightCode } from "@earendil-works/pi-coding-agent";
+import { messages } from "../lib/i18n.ts";
+
+const t = messages(
+  {
+    lineOne: "{count} line",
+    lineMany: "{count} lines",
+    noOutput: "no output",
+    outputOne: "{count} line of output",
+    outputMany: "{count} lines of output",
+    matchOne: "{count} match",
+    matchMany: "{count} matches",
+    noMatches: "no matches",
+    resultOne: "{count} result",
+    resultMany: "{count} results",
+    noResults: "no results",
+    entryOne: "{count} entry",
+    entryMany: "{count} entries",
+    noEntries: "no entries",
+    moreQuestions: "{first} (+{count} more)",
+    dismissed: "dismissed",
+    answered: "answered",
+    moreLines: "… {count} more lines (expand to see all)",
+    added: "Added {added}",
+    addedRemoved: "Added {added}, removed {removed}",
+  },
+  {
+    lineOne: "{count} baris",
+    lineMany: "{count} baris",
+    noOutput: "tidak ada output",
+    outputOne: "{count} baris output",
+    outputMany: "{count} baris output",
+    matchOne: "{count} kecocokan",
+    matchMany: "{count} kecocokan",
+    noMatches: "tidak ada kecocokan",
+    resultOne: "{count} hasil",
+    resultMany: "{count} hasil",
+    noResults: "tidak ada hasil",
+    entryOne: "{count} entri",
+    entryMany: "{count} entri",
+    noEntries: "tidak ada entri",
+    moreQuestions: "{first} (+{count} lagi)",
+    dismissed: "ditutup",
+    answered: "dijawab",
+    moreLines: "… {count} baris lagi (buka untuk lihat semua)",
+    added: "Tambah {added}",
+    addedRemoved: "Tambah {added}, hapus {removed}",
+  },
+);
 
 type ResultLike = { content?: { type: string; text?: string }[]; details?: Record<string, unknown> };
 type Colors = Pick<Theme, "fg" | "bold" | "bg">;
@@ -26,9 +74,15 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }
 
-function plural(count: number, one: string, many = `${one}s`): string {
-  return `${count} ${count === 1 ? one : many}`;
+type CountKeys = { one: Parameters<typeof t>[0]; many: Parameters<typeof t>[0]; none?: Parameters<typeof t>[0] };
+
+/** "1 line", "3 lines", or the `none` wording for zero when there is one. */
+function plural(count: number, keys: CountKeys): string {
+  if (count === 0 && keys.none) return t(keys.none);
+  return t(count === 1 ? keys.one : keys.many, { count });
 }
+
+const LINES: CountKeys = { one: "lineOne", many: "lineMany" };
 
 function textOf(result: ResultLike | undefined): string {
   return (result?.content ?? [])
@@ -39,16 +93,20 @@ function textOf(result: ResultLike | undefined): string {
 }
 
 const SHELLS = new Set(["bash", "powershell"]);
-const LISTERS: Record<string, [string, string]> = { grep: ["match", "matches"], find: ["result", "results"], ls: ["entry", "entries"] };
+const LISTERS: Record<string, CountKeys> = {
+  grep: { one: "matchOne", many: "matchMany", none: "noMatches" },
+  find: { one: "resultOne", many: "resultMany", none: "noResults" },
+  ls: { one: "entryOne", many: "entryMany", none: "noEntries" },
+};
 
 /** What came back, or undefined when there is nothing worth saying. */
 export function outcome(tool: string, result: ResultLike | undefined): string | undefined {
   const text = textOf(result);
   const lines = text ? text.split("\n").length : 0;
-  if (tool === "read") return plural(lines, "line");
-  if (SHELLS.has(tool)) return lines === 0 ? "no output" : plural(lines, "line") + " of output";
+  if (tool === "read") return plural(lines, LINES);
+  if (SHELLS.has(tool)) return plural(lines, { one: "outputOne", many: "outputMany", none: "noOutput" });
   const noun = LISTERS[tool];
-  if (noun) return plural(lines, ...noun).replace(/^0 /, "no ");
+  if (noun) return plural(lines, noun);
   return undefined;
 }
 
@@ -64,7 +122,7 @@ export function callTarget(args: unknown): string {
   const questions = input.questions;
   if (Array.isArray(questions) && questions.length > 0) {
     const first = String((questions[0] as { question?: unknown })?.question ?? "").replace(/s+/g, " ").trim();
-    return questions.length > 1 ? `${first} (+${questions.length - 1} more)` : first;
+    return questions.length > 1 ? t("moreQuestions", { first, count: questions.length - 1 }) : first;
   }
   for (const key of ["file_path", "path", "command", "pattern", "prompt", "description"]) {
     const value = input[key];
@@ -83,7 +141,7 @@ export function askBody(result: ResultLike, theme: Pick<Theme, "fg">): string[] 
 }
 
 export function askSummary(result: ResultLike | undefined): string {
-  return result?.details?.dismissed ? "dismissed" : "answered";
+  return result?.details?.dismissed ? t("dismissed") : t("answered");
 }
 
 export type CardState = "pending" | "done" | "error";
@@ -120,9 +178,8 @@ export function diffSummary(diff: string): string {
   const lines = diff.split("\n");
   const added = lines.filter((line) => line.startsWith("+")).length;
   const removed = lines.filter((line) => line.startsWith("-")).length;
-  const count = (n: number) => `${n} line${n === 1 ? "" : "s"}`;
-  if (removed === 0) return `Added ${count(added)}`;
-  return `Added ${count(added)}, removed ${count(removed)}`;
+  if (removed === 0) return t("added", { added: plural(added, LINES) });
+  return t("addedRemoved", { added: plural(added, LINES), removed: plural(removed, LINES) });
 }
 
 /** The diff a write or edit made: an edit's own, or every line of a written file as added. */
@@ -211,7 +268,7 @@ class ToolCard implements Component {
       body = diffRows(diff, inner, this.theme, (code) => highlightCode(code, lang)[0] ?? code);
       if (!view?.expanded && body.length > DIFF_PREVIEW_LINES) {
         const hidden = body.length - DIFF_PREVIEW_LINES;
-        body = [...body.slice(0, DIFF_PREVIEW_LINES), this.theme.fg("dim", `… ${hidden} more lines (expand to see all)`)];
+        body = [...body.slice(0, DIFF_PREVIEW_LINES), this.theme.fg("dim", t("moreLines", { count: hidden }))];
       }
       body.unshift(this.theme.fg("muted", diffSummary(diff)));
     }

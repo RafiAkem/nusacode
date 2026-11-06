@@ -7,6 +7,10 @@
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { answersText, AskPanel, normalizeQuestions, type AskResult } from "../lib/ask-panel.ts";
+import { messages } from "../lib/i18n.ts";
+
+// Only the label people see on the tool call. Everything the model reads below stays English.
+const t = messages({ label: "Ask" }, { label: "Tanya" });
 
 const text = (value: string) => [{ type: "text" as const, text: value }];
 
@@ -15,7 +19,7 @@ export default function ask(pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "ask",
-    label: "Ask",
+    label: t("label"),
     description:
       "Ask the user one to four multiple-choice questions and wait for the answers. Use it when the request is " +
       "ambiguous, when you must pick between real alternatives, or before a risky or hard-to-undo step. " +

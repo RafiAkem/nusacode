@@ -6,6 +6,24 @@
  * so far, which providers usually serve from the cache at a fraction of the input price.
  */
 import { idr, parseIdr } from "./money.ts";
+import { messages } from "./i18n.ts";
+
+const t = messages(
+  {
+    readIt: "{cost} to read it",
+    reread: "{cost} to re-read the conversation from the cache",
+    largeMessage: "Large message: about {tokens} tokens, around {total} to send ({parts}), before the reply.",
+    fanOut:
+      "Starting {count} subagents at once. Subagents have cost about {each} each so far in this session, so around {total} in total.",
+  },
+  {
+    readIt: "{cost} untuk membacanya",
+    reread: "{cost} untuk membaca ulang percakapan dari cache",
+    largeMessage: "Pesan besar: sekitar {tokens} token, perkiraan {total} untuk dikirim ({parts}), belum termasuk balasan.",
+    fanOut:
+      "Menjalankan {count} subagent sekaligus. Sejauh ini di sesi ini, tiap subagent memakan biaya sekitar {each}, jadi totalnya sekitar {total}.",
+  },
+);
 
 /** English text and code average a little under four characters per token. */
 const CHARS_PER_TOKEN = 4;
@@ -45,11 +63,11 @@ function tokenText(n: number): string {
 
 /** One line for the notice, such as `Large message: about 12.0k tokens, around Rp 48 to send (...), before the reply.` */
 export function describeEstimate(estimate: Estimate): string {
-  const parts = [`${idr(Math.ceil(estimate.messageIdr))} to read it`];
+  const parts = [t("readIt", { cost: idr(Math.ceil(estimate.messageIdr)) })];
   if (estimate.contextTokens !== null && estimate.contextIdr > 0) {
-    parts.push(`${idr(Math.ceil(estimate.contextIdr))} to re-read the conversation from the cache`);
+    parts.push(t("reread", { cost: idr(Math.ceil(estimate.contextIdr)) }));
   }
-  return `Large message: about ${tokenText(estimate.messageTokens)} tokens, around ${idr(estimate.totalIdr)} to send (${parts.join(" + ")}), before the reply.`;
+  return t("largeMessage", { tokens: tokenText(estimate.messageTokens), total: idr(estimate.totalIdr), parts: parts.join(" + ") });
 }
 
 /** The confirmation threshold from NUSACODE_CONFIRM_ABOVE; `off` or `0` turns the question off. */
@@ -62,5 +80,5 @@ export function confirmThreshold(value: string | undefined): number | null {
 /** What several subagents started at once will probably cost, from what the ones so far cost. */
 export function describeFanOut(count: number, averageIdr: number): string {
   const each = idr(Math.ceil(averageIdr));
-  return `Starting ${count} subagents at once. Subagents have cost about ${each} each so far in this session, so around ${idr(Math.ceil(averageIdr * count))} in total.`;
+  return t("fanOut", { count, each, total: idr(Math.ceil(averageIdr * count)) });
 }

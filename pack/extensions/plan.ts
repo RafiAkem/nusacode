@@ -16,18 +16,47 @@
  * nothing but read-only tools.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { judge, modeNotice, parseMode, statusText, type AgentTools, type Mode } from "../lib/plan-mode.ts";
+import { judge, modeNotice, parseMode, statusText, summaryShown, type AgentTools, type Mode } from "../lib/plan-mode.ts";
+import { messages } from "../lib/i18n.ts";
 import { loadAgents } from "./subagents.ts";
 
+const t = messages(
+  {
+    allow: "Allow",
+    allowAll: "Allow, and stop asking",
+    deny: "Deny",
+    flag: "Start in plan mode: the agent can read but not change anything",
+    planOn: "Plan mode is on: the agent can read and search, but not change anything. /plan off to leave.",
+    askOn: "Ask mode is on: you approve every change. /plan off to leave.",
+    off: "Plan mode is off.",
+    allowThis: "Allow this?\n{summary}",
+    askOff: "Ask mode is off. The agent can change files and run commands again.",
+    description: "Plan mode: /plan toggles read-only, /plan ask approves each change, /plan off leaves it",
+    usage: "Usage: /plan, /plan ask, /plan off, /plan status",
+    shortcut: "Toggle plan mode",
+  },
+  {
+    allow: "Izinkan",
+    allowAll: "Izinkan, dan jangan tanya lagi",
+    deny: "Tolak",
+    flag: "Mulai di mode plan: agent bisa membaca tapi tidak bisa mengubah apa pun",
+    planOn: "Mode plan aktif: agent bisa membaca dan mencari, tapi tidak bisa mengubah apa pun. /plan off untuk keluar.",
+    askOn: "Mode ask aktif: agent tanya dulu sebelum tiap perubahan, dan kamu yang menyetujui. /plan off untuk keluar.",
+    off: "Mode plan nonaktif.",
+    allowThis: "Izinkan ini?\n{summary}",
+    askOff: "Mode ask nonaktif. Agent bisa mengubah file dan menjalankan command lagi.",
+    description: "Mode plan: /plan untuk mode hanya baca, /plan ask untuk tanya dulu sebelum tiap perubahan, /plan off untuk keluar",
+    usage: "Cara pakai: /plan, /plan ask, /plan off, /plan status",
+    shortcut: "Aktifkan atau nonaktifkan mode plan",
+  },
+);
+
 const STATUS_KEY = "nusa-mode";
-const ALLOW = "Allow";
-const ALLOW_ALL = "Allow, and stop asking";
-const DENY = "Deny";
 
 export default function plan(pi: ExtensionAPI) {
   let mode: Mode = "off";
 
-  pi.registerFlag("plan", { description: "Start in plan mode: the agent can read but not change anything", type: "boolean" });
+  pi.registerFlag("plan", { description: t("flag"), type: "boolean" });
 
   function setMode(next: Mode, ctx: ExtensionContext, tell: boolean): void {
     mode = next;
@@ -35,12 +64,7 @@ export default function plan(pi: ExtensionAPI) {
     if (tell) pi.sendMessage({ customType: "nusacode-mode", content: modeNotice(mode), display: false }, { deliverAs: "nextTurn" });
   }
 
-  const describe = (value: Mode) =>
-    value === "plan"
-      ? "Plan mode is on: the agent can read and search, but not change anything. /plan off to leave."
-      : value === "ask"
-        ? "Ask mode is on: you approve every change. /plan off to leave."
-        : "Plan mode is off.";
+  const describe = (value: Mode) => t(value === "plan" ? "planOn" : value === "ask" ? "askOn" : "off");
 
   pi.on("session_start", (_event, ctx) => {
     setMode(pi.getFlag("plan") === true ? "plan" : "off", ctx, false);
@@ -54,22 +78,25 @@ export default function plan(pi: ExtensionAPI) {
     if (!ctx.hasUI) {
       return { block: true, reason: `${verdict.summary} needs the user's approval, and there is no screen to ask on.` };
     }
-    const answer = await ctx.ui.select(`Allow this?\n${verdict.summary}`, [ALLOW, ALLOW_ALL, DENY]);
+    const ALLOW = t("allow");
+    const ALLOW_ALL = t("allowAll");
+    const shown = summaryShown(event.toolName, event.input as Record<string, unknown>);
+    const answer = await ctx.ui.select(t("allowThis", { summary: shown }), [ALLOW, ALLOW_ALL, t("deny")]);
     if (answer === ALLOW) return undefined;
     if (answer === ALLOW_ALL) {
       setMode("off", ctx, true);
-      ctx.ui.notify("Ask mode is off. The agent can change files and run commands again.", "info");
+      ctx.ui.notify(t("askOff"), "info");
       return undefined;
     }
     return { block: true, reason: `The user declined: ${verdict.summary}. Ask what they would like instead.` };
   });
 
   pi.registerCommand("plan", {
-    description: "Plan mode: /plan toggles read-only, /plan ask approves each change, /plan off leaves it",
+    description: t("description"),
     handler: async (args, ctx) => {
       const next = parseMode(args, mode);
       if (next === null) {
-        ctx.ui.notify("Usage: /plan, /plan ask, /plan off, /plan status", "warning");
+        ctx.ui.notify(t("usage"), "warning");
         return;
       }
       if (next === "status") {
@@ -82,7 +109,7 @@ export default function plan(pi: ExtensionAPI) {
   });
 
   pi.registerShortcut("alt+m", {
-    description: "Toggle plan mode",
+    description: t("shortcut"),
     handler: (ctx) => {
       const next: Mode = mode === "off" ? "plan" : "off";
       setMode(next, ctx, true);

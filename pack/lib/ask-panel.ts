@@ -9,6 +9,33 @@
 import type { Component, Focusable } from "@earendil-works/pi-tui";
 import { Input, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { messages } from "./i18n.ts";
+
+// Only what the person sees in the panel. What the model reads (normalizeQuestions, answersText) stays English.
+const say = messages(
+  {
+    questionTab: "Q{number}",
+    otherTyping: "Other: ",
+    other: "Other…",
+    typingHint: "enter to confirm · esc to go back",
+    move: "↑↓ move",
+    multiHint: "space toggle · enter confirm",
+    singleHint: "enter select",
+    switchHint: "tab switch",
+    dismissHint: "esc dismiss",
+  },
+  {
+    questionTab: "P{number}",
+    otherTyping: "Lainnya: ",
+    other: "Lainnya…",
+    typingHint: "enter untuk konfirmasi · esc untuk kembali",
+    move: "↑↓ pindah",
+    multiHint: "space centang · enter konfirmasi",
+    singleHint: "enter pilih",
+    switchHint: "tab ganti pertanyaan",
+    dismissHint: "esc tutup",
+  },
+);
 
 export type Option = { label: string; description?: string };
 export type Question = { question: string; header?: string; options: Option[]; multiSelect?: boolean };
@@ -176,7 +203,7 @@ export class AskPanel implements Component, Focusable {
     const body: string[] = [];
     if (this.questions.length > 1) {
       const chips = this.questions.map((q, i) => {
-        const label = `${this.answered[i] ? "✓" : "·"} ${q.header ?? `Q${i + 1}`}`;
+        const label = `${this.answered[i] ? "✓" : "·"} ${q.header ?? say("questionTab", { number: i + 1 })}`;
         return i === this.tab ? t.fg("accent", t.bold(`[${label}]`)) : t.fg(this.answered[i] ? "success" : "dim", ` ${label} `);
       });
       body.push(chips.join(" "), "");
@@ -195,16 +222,23 @@ export class AskPanel implements Component, Focusable {
     const otherHere = at === q.options.length;
     const otherNumber = q.multiSelect ? "[ ]" : `${q.options.length + 1}.`;
     if (this.typing) {
-      body.push(t.fg("accent", `› ${otherNumber} Other: `) + (this.input.render(Math.max(5, inner - 14))[0] ?? ""));
+      // The input gets what the label leaves: 14 columns with the English "Other: ".
+      const label = say("otherTyping");
+      body.push(t.fg("accent", `› ${otherNumber} ${label}`) + (this.input.render(Math.max(5, inner - 7 - visibleWidth(label)))[0] ?? ""));
     } else {
       const saved = this.other[this.tab];
-      const head = `${otherHere ? "›" : " "} ${otherNumber} Other…${saved ? ` ${saved}` : ""}`;
+      const head = `${otherHere ? "›" : " "} ${otherNumber} ${say("other")}${saved ? ` ${saved}` : ""}`;
       body.push(otherHere ? t.fg("accent", t.bold(head)) : saved ? t.fg("success", head) : t.fg("muted", head));
     }
     body.push("");
     const hint = this.typing
-      ? "enter to confirm · esc to go back"
-      : ["↑↓ move", q.multiSelect ? "space toggle · enter confirm" : "enter select", ...(this.questions.length > 1 ? ["tab switch"] : []), "esc dismiss"].join(" · ");
+      ? say("typingHint")
+      : [
+          say("move"),
+          say(q.multiSelect ? "multiHint" : "singleHint"),
+          ...(this.questions.length > 1 ? [say("switchHint")] : []),
+          say("dismissHint"),
+        ].join(" · ");
     for (const line of wrapTextWithAnsi(hint, inner)) body.push(t.fg("dim", line));
 
     const edge = (text: string) => t.fg("accent", text);

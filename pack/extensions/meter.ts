@@ -15,6 +15,92 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { agentDir } from "../lib/home.ts";
 import { idr, USD_IDR } from "../lib/money.ts";
 import { historyReport, parsePeriod, periodRows, readLog } from "../lib/usage-log.ts";
+import { messages } from "../lib/i18n.ts";
+
+const t = messages(
+  {
+    balance: "Balance",
+    pass: "Pass",
+    price: "Price",
+    saved: "Saved",
+    requests: "Requests",
+    tokens: "Tokens",
+    cacheHit: "Cache hit",
+    speed: "Speed",
+    sessionCost: "Session cost",
+    listPrice: "List price",
+    unknown: "unknown",
+    keyNotFound: "NusaGate API key not found",
+    unavailable: "unavailable",
+    unavailableWhy: "unavailable ({reason})",
+    loading: "loading...",
+    passLeft: "{left} left of {total} · until {date}",
+    lowBalanceTopup: "Low balance · top up: {link}",
+    lowBalanceShort: "{amount} · low, /topup",
+    notInCatalog: "model not in catalog",
+    priceValue: "{input} input · {output} output /1M",
+    savedValue: "{percent} vs list price",
+    statusNoUsage: "nusa · no usage yet",
+    statusPricesUnavailable: "nusa · prices unavailable",
+    statusLoadingPrices: "nusa · loading prices...",
+    statusCostUnavailable: "nusa · {tokens} tok · cost unavailable",
+    moreHistory: "More: /usage history",
+    costUnavailable: "Cost unavailable (price fetch failed: {reason})",
+    noModelYet: "no model yet",
+    noUsageSession: "No usage in this session yet.",
+    pricesSource: "Prices: {source} (fetched once at session start)",
+    speedValue: "{last} tok/s last · {average} tok/s average",
+    listPriceValue: "{official} · saved {percent} (excl. cached tokens)",
+    unpricedResponses: "{count} response(s) without a price (model not in catalog)",
+    usageDescription: "Show the session cost meter (rupiah, tokens, savings). `/usage history` shows spending over time",
+    usageHistoryUsage: "Usage: /usage history [today|week|month|all]",
+    topupDescription: "Show your balance and a NusaGate top-up link",
+    topupBalance: "Balance: {amount}",
+    topupBalanceUnavailable: "Balance unavailable ({reason})",
+    topupLink: "Top up: {link}",
+  },
+  {
+    balance: "Saldo",
+    pass: "Pass",
+    price: "Harga",
+    saved: "Hemat",
+    requests: "Permintaan",
+    tokens: "Token",
+    cacheHit: "Cache hit",
+    speed: "Kecepatan",
+    sessionCost: "Biaya sesi",
+    listPrice: "Harga resmi",
+    unknown: "tidak diketahui",
+    keyNotFound: "API key NusaGate tidak ditemukan",
+    unavailable: "tidak tersedia",
+    unavailableWhy: "tidak tersedia ({reason})",
+    loading: "memuat...",
+    passLeft: "sisa {left} dari {total} · berakhir {date}",
+    lowBalanceTopup: "Saldo menipis · top up: {link}",
+    lowBalanceShort: "{amount} · menipis, /topup",
+    notInCatalog: "model tidak ada di katalog",
+    priceValue: "{input} input · {output} output /1M",
+    savedValue: "{percent} dibanding harga resmi",
+    statusNoUsage: "nusa · belum ada pemakaian",
+    statusPricesUnavailable: "nusa · harga tidak tersedia",
+    statusLoadingPrices: "nusa · memuat harga...",
+    statusCostUnavailable: "nusa · {tokens} tok · biaya tidak tersedia",
+    moreHistory: "Selengkapnya: /usage history",
+    costUnavailable: "Biaya tidak tersedia (gagal mengambil harga: {reason})",
+    noModelYet: "belum ada model",
+    noUsageSession: "Belum ada pemakaian di sesi ini.",
+    pricesSource: "Harga: {source} (diambil sekali saat sesi dimulai)",
+    speedValue: "{last} tok/s terakhir · rata-rata {average} tok/s",
+    listPriceValue: "{official} · hemat {percent} (tidak termasuk token dari cache)",
+    unpricedResponses: "{count} respons tanpa harga (model tidak ada di katalog)",
+    usageDescription: "Tampilkan meteran biaya sesi (rupiah, token, penghematan). `/usage history` menampilkan pengeluaran dari waktu ke waktu",
+    usageHistoryUsage: "Cara pakai: /usage history [today|week|month|all]",
+    topupDescription: "Tampilkan saldo kamu dan link top up NusaGate",
+    topupBalance: "Saldo: {amount}",
+    topupBalanceUnavailable: "Saldo tidak tersedia ({reason})",
+    topupLink: "Top up: {link}",
+  },
+);
 
 const MODELS_URL = "https://api.nusagate.com/api/public/models";
 export const BALANCE_URL = "https://api.nusagate.com/v1/balance";
@@ -52,6 +138,8 @@ const FETCH_TIMEOUT_MS = 5_000;
 /** Below this the report carries the topup link. */
 const LOW_BALANCE_IDR = 5_000;
 const MIN_SPEED_SAMPLE_MS = 50;
+/** Stored as the balance error when there is no key; shown translated. */
+const MISSING_KEY = "NusaGate API key not found";
 
 type Json = Record<string, unknown>;
 
@@ -255,7 +343,7 @@ export default function meter(pi: ExtensionAPI) {
   /** Best-effort wallet refresh; failures keep the last known balance. */
   async function refreshBalance(key: string | undefined): Promise<void> {
     if (!key) {
-      balanceError = "NusaGate API key not found";
+      balanceError = MISSING_KEY;
       return;
     }
     try {
@@ -266,24 +354,31 @@ export default function meter(pi: ExtensionAPI) {
     }
   }
 
+  /** Why the balance is missing, in the language in use. */
+  function balanceReason(): string {
+    if (balanceError === MISSING_KEY) return t("keyNotFound");
+    return balanceError ?? t("unknown");
+  }
+
+  function passValue(pass: NonNullable<Balance["pass"]>): string {
+    return t("passLeft", { left: idr(pass.remainingIdr), total: idr(pass.totalIdr), date: pass.endsAt.slice(0, 10) });
+  }
+
   function balanceRows(): string[] {
-    if (!balance) return [row("Balance", `unavailable (${balanceError ?? "unknown"})`)];
-    const lines = [row("Balance", idr(balance.balanceIdr))];
-    if (balance.pass) {
-      const { remainingIdr, totalIdr, endsAt } = balance.pass;
-      lines.push(row("Pass", `${idr(remainingIdr)} left of ${idr(totalIdr)} · until ${endsAt.slice(0, 10)}`));
-    }
-    if (balance.balanceIdr < LOW_BALANCE_IDR) lines.push(`Low balance · top up: ${topupLink()}`);
+    if (!balance) return [row(t("balance"), t("unavailableWhy", { reason: balanceReason() }))];
+    const lines = [row(t("balance"), idr(balance.balanceIdr))];
+    if (balance.pass) lines.push(row(t("pass"), passValue(balance.pass)));
+    if (balance.balanceIdr < LOW_BALANCE_IDR) lines.push(t("lowBalanceTopup", { link: topupLink() }));
     return lines;
   }
 
   function statusText(): string {
     const used = totalTokens(totals);
     if (totals.requests === 0) {
-      if (prices) return "nusa · no usage yet";
-      return priceError ? "nusa · prices unavailable" : "nusa · loading prices...";
+      if (prices) return t("statusNoUsage");
+      return priceError ? t("statusPricesUnavailable") : t("statusLoadingPrices");
     }
-    if (!prices) return `nusa · ${tokens(used)} tok · cost unavailable`;
+    if (!prices) return t("statusCostUnavailable", { tokens: tokens(used) });
     const prefix = totals.unpriced > 0 ? "≥ " : "";
     const prompt = totals.freshInput + totals.cacheRead;
     const cache = prompt > 0 ? ` · cache ${percent(totals.cacheRead, prompt)}` : "";
@@ -296,33 +391,34 @@ export default function meter(pi: ExtensionAPI) {
     if (balance) {
       const low = balance.balanceIdr < LOW_BALANCE_IDR;
       rows.push({
-        label: "Balance",
-        value: low ? `${idr(balance.balanceIdr)} · low, /topup` : idr(balance.balanceIdr),
+        label: t("balance"),
+        value: low ? t("lowBalanceShort", { amount: idr(balance.balanceIdr) }) : idr(balance.balanceIdr),
         warn: low,
       });
-      if (balance.pass) {
-        const { remainingIdr, totalIdr, endsAt } = balance.pass;
-        rows.push({
-          label: "Pass",
-          value: `${idr(remainingIdr)} left of ${idr(totalIdr)} · until ${endsAt.slice(0, 10)}`,
-        });
-      }
+      if (balance.pass) rows.push({ label: t("pass"), value: passValue(balance.pass) });
     } else {
-      rows.push({ label: "Balance", value: balanceError ? `unavailable (${balanceError})` : "loading...", warn: !!balanceError });
+      rows.push({
+        label: t("balance"),
+        value: balanceError ? t("unavailableWhy", { reason: balanceReason() }) : t("loading"),
+        warn: !!balanceError,
+      });
     }
     if (!prices) {
-      rows.push({ label: "Price", value: priceError ? "unavailable" : "loading..." });
+      rows.push({ label: t("price"), value: priceError ? t("unavailable") : t("loading") });
       return rows;
     }
     const price = modelId === undefined ? undefined : prices.get(modelId);
     if (!price) {
-      rows.push({ label: "Price", value: "model not in catalog" });
+      rows.push({ label: t("price"), value: t("notInCatalog") });
       return rows;
     }
-    rows.push({ label: "Price", value: `${idr(price.inputPer1M)} input · ${idr(price.outputPer1M)} output /1M` });
+    rows.push({ label: t("price"), value: t("priceValue", { input: idr(price.inputPer1M), output: idr(price.outputPer1M) }) });
     if (price.officialInputPer1M !== null && price.officialOutputPer1M !== null) {
       const official = price.officialInputPer1M + price.officialOutputPer1M;
-      rows.push({ label: "Saved", value: `${percent(official - price.inputPer1M - price.outputPer1M, official)} vs list price` });
+      rows.push({
+        label: t("saved"),
+        value: t("savedValue", { percent: percent(official - price.inputPer1M - price.outputPer1M, official) }),
+      });
     }
     return rows;
   }
@@ -339,21 +435,21 @@ export default function meter(pi: ExtensionAPI) {
   /** Today and this month across all sessions, from the saved history. */
   function historyRows(): string[] {
     const rows = periodRows(readLog(agentDir()), new Date());
-    return rows.length === 0 ? [] : [...rows.map(([label, value]) => row(label, value)), "More: /usage history"];
+    return rows.length === 0 ? [] : [...rows.map(([label, value]) => row(label, value)), t("moreHistory")];
   }
 
   function unavailableLine(): string {
-    return `Cost unavailable (price fetch failed: ${priceError ?? "unknown"})`;
+    return t("costUnavailable", { reason: priceError ?? t("unknown") });
   }
 
   function report(): string {
     const used = totalTokens(totals);
     const prompt = totals.freshInput + totals.cacheRead;
-    const header = `NusaCode · ${[...modelsUsed].join(", ") || "no model yet"}`;
+    const header = `NusaCode · ${[...modelsUsed].join(", ") || t("noModelYet")}`;
     const lines = [header, "─".repeat(Math.max(header.length, 32))];
     if (totals.requests === 0) {
-      lines.push("No usage in this session yet.");
-      lines.push(prices ? `Prices: ${priceSource} (fetched once at session start)` : unavailableLine());
+      lines.push(t("noUsageSession"));
+      lines.push(prices ? t("pricesSource", { source: priceSource }) : unavailableLine());
       lines.push(...historyRows());
       lines.push(...balanceRows());
       return lines.join("\n");
@@ -362,32 +458,35 @@ export default function meter(pi: ExtensionAPI) {
     if (totals.subagentRequests > 0) {
       requestValue.push(`subagent ${totals.subagentRequests} · ${tokens(totals.subagentTokens)} tok`);
     }
-    lines.push(row("Requests", requestValue.join(" · ")));
+    lines.push(row(t("requests"), requestValue.join(" · ")));
     lines.push(
       row(
-        "Tokens",
+        t("tokens"),
         `${tokens(used)} · input ${tokens(totals.freshInput)} · cache ${tokens(totals.cacheRead)} · output ${tokens(totals.output)}`,
       ),
     );
     if (used > 0) {
-      lines.push(row("Cache hit", `${bar(totals.cacheRead, prompt)} ${percent(totals.cacheRead, prompt)}`));
+      lines.push(row(t("cacheHit"), `${bar(totals.cacheRead, prompt)} ${percent(totals.cacheRead, prompt)}`));
     }
     if (lastSpeed !== null) {
       const average = Math.round(tokensPerSecond(speedTokens, speedMs));
-      lines.push(row("Speed", `${Math.round(lastSpeed)} tok/s last · ${average} tok/s average`));
+      lines.push(row(t("speed"), t("speedValue", { last: Math.round(lastSpeed), average })));
     }
     if (prices) {
-      lines.push(row("Session cost", idr(totals.costIdr)));
+      lines.push(row(t("sessionCost"), idr(totals.costIdr)));
       if (totals.officialIdr > 0) {
         lines.push(
           row(
-            "List price",
-            `${idr(totals.officialIdr)} · saved ${percent(totals.officialIdr - totals.comparableIdr, totals.officialIdr)} (excl. cached tokens)`,
+            t("listPrice"),
+            t("listPriceValue", {
+              official: idr(totals.officialIdr),
+              percent: percent(totals.officialIdr - totals.comparableIdr, totals.officialIdr),
+            }),
           ),
         );
       }
-      if (totals.unpriced > 0) lines.push(`${totals.unpriced} response(s) without a price (model not in catalog)`);
-      lines.push(`Prices: ${priceSource} (fetched once at session start)`);
+      if (totals.unpriced > 0) lines.push(t("unpricedResponses", { count: totals.unpriced }));
+      lines.push(t("pricesSource", { source: priceSource }));
     } else {
       lines.push(unavailableLine());
     }
@@ -541,13 +640,13 @@ export default function meter(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("usage", {
-    description: "Show the session cost meter (rupiah, tokens, savings). `/usage history` shows spending over time",
+    description: t("usageDescription"),
     handler: async (args, ctx) => {
       const [first, ...rest] = args.trim().split(/\s+/);
       if (first?.toLowerCase() === "history") {
         const period = parsePeriod(rest.join(" "));
         if (period === null) {
-          ctx.ui.notify("Usage: /usage history [today|week|month|all]", "warning");
+          ctx.ui.notify(t("usageHistoryUsage"), "warning");
           return;
         }
         ctx.ui.notify(historyReport(readLog(agentDir()), period, new Date()), "info");
@@ -560,11 +659,13 @@ export default function meter(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("topup", {
-    description: "Show your balance and a NusaGate top-up link",
+    description: t("topupDescription"),
     handler: async (_args, ctx) => {
       await refreshBalance(apiKey);
-      const summary = balance ? `Balance: ${idr(balance.balanceIdr)}` : `Balance unavailable (${balanceError ?? "unknown"})`;
-      ctx.ui.notify(`${summary}\nTop up: ${topupLink()}`, "info");
+      const summary = balance
+        ? t("topupBalance", { amount: idr(balance.balanceIdr) })
+        : t("topupBalanceUnavailable", { reason: balanceReason() });
+      ctx.ui.notify(`${summary}\n${t("topupLink", { link: topupLink() })}`, "info");
     },
   });
 }

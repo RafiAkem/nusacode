@@ -1,6 +1,56 @@
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { idr } from "./money.ts";
+import { messages } from "./i18n.ts";
+
+const t = messages(
+  {
+    weekdays: "Sun Mon Tue Wed Thu Fri Sat",
+    request: "{count} request",
+    requests: "{count} requests",
+    response: "{count} response",
+    responses: "{count} responses",
+    today: "Today",
+    thisMonth: "This month",
+    last7Days: "Last 7 days",
+    allTime: "All time",
+    titleToday: "today",
+    titleWeek: "the last 7 days",
+    titleMonth: "this month",
+    titleAll: "all time",
+    header: "NusaCode · usage history",
+    nothingYet: "Nothing recorded yet. Spending is saved here as you use NusaCode.",
+    perDay: "Per day",
+    byModel: "By model, {period}",
+    noUsagePeriod: "No usage in this period.",
+    modelRow: "{name}  {cost} · {requests} · {average}/request · cache {cache}",
+    unpriced: "{responses} had no price, so their cost is not counted.",
+    otherPeriods: "Other periods: /usage history today | week | month | all",
+  },
+  {
+    weekdays: "Min Sen Sel Rab Kam Jum Sab",
+    request: "{count} permintaan",
+    requests: "{count} permintaan",
+    response: "{count} respons",
+    responses: "{count} respons",
+    today: "Hari ini",
+    thisMonth: "Bulan ini",
+    last7Days: "7 hari terakhir",
+    allTime: "Sepanjang waktu",
+    titleToday: "hari ini",
+    titleWeek: "7 hari terakhir",
+    titleMonth: "bulan ini",
+    titleAll: "sepanjang waktu",
+    header: "NusaCode · riwayat pemakaian",
+    nothingYet: "Belum ada yang tercatat. Pengeluaran kamu disimpan di sini selama kamu memakai NusaCode.",
+    perDay: "Per hari",
+    byModel: "Per model, {period}",
+    noUsagePeriod: "Belum ada pemakaian di periode ini.",
+    modelRow: "{name}  {cost} · {requests} · {average}/permintaan · cache {cache}",
+    unpriced: "{responses} tidak punya harga, jadi biayanya tidak dihitung.",
+    otherPeriods: "Periode lain: /usage history today | week | month | all",
+  },
+);
 
 /**
  * A running record of spending, one line of JSON per response, kept in the NusaCode home.
@@ -221,14 +271,16 @@ export function byModel(records: LogRecord[]): [string, Total][] {
   return [...totals].sort((a, b) => b[1].cost - a[1].cost || b[1].requests - a[1].requests);
 }
 
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/** Short weekday names, Sunday first, in the language in use. */
+const weekdays = (): string[] => t("weekdays").split(" ");
 
 /** Cost per local day for the last `days` days, oldest first, with empty days included. */
 export function dailyCosts(records: LogRecord[], now: Date, days = 7): { label: string; cost: number }[] {
   const today = startOfDay(now);
+  const names = weekdays();
   const rows = Array.from({ length: days }, (_, i) => {
     const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1 - i));
-    return { day, label: `${WEEKDAYS[day.getDay()]} ${String(day.getDate()).padStart(2, "0")}`, cost: 0 };
+    return { day, label: `${names[day.getDay()]} ${String(day.getDate()).padStart(2, "0")}`, cost: 0 };
   });
   for (const record of records) {
     const at = new Date(record.t);
@@ -243,12 +295,13 @@ export function periodRows(records: LogRecord[], now: Date): [string, string][] 
   if (records.length === 0) return [];
   const row = (label: string, from: Date): [string, string] => {
     const total = totalOf(within(records, from));
-    return [label, `${idr(total.cost)} · ${plural(total.requests, "request")}`];
+    return [label, `${idr(total.cost)} · ${requestCount(total.requests)}`];
   };
-  return [row("Today", periodStart("today", now) as Date), row("This month", periodStart("month", now) as Date)];
+  return [row(t("today"), periodStart("today", now) as Date), row(t("thisMonth"), periodStart("month", now) as Date)];
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const requestCount = (n: number) => t(n === 1 ? "request" : "requests", { count: n });
+const responseCount = (n: number) => t(n === 1 ? "response" : "responses", { count: n });
 
 function cachePercent(total: Total): string {
   const prompt = total.fresh + total.cached;
@@ -263,37 +316,54 @@ function bars(rows: { label: string; cost: number }[], width = 14): string[] {
   });
 }
 
-const TITLES: Record<Period, string> = { today: "today", week: "the last 7 days", month: "this month", all: "all time" };
+function periodTitle(period: Period): string {
+  if (period === "today") return t("titleToday");
+  if (period === "week") return t("titleWeek");
+  if (period === "month") return t("titleMonth");
+  return t("titleAll");
+}
 
 /** The `/usage history` report. */
 export function historyReport(records: LogRecord[], period: Period, now: Date): string {
-  const header = "NusaCode · usage history";
+  const header = t("header");
   const lines = [header, "─".repeat(header.length + 8)];
   if (records.length === 0) {
-    lines.push("Nothing recorded yet. Spending is saved here as you use NusaCode.");
+    lines.push(t("nothingYet"));
     return lines.join("\n");
   }
-  const summaryRow = (label: string, from: Date | null) => {
+  const summaries: [string, Date | null][] = [
+    [t("today"), periodStart("today", now)],
+    [t("last7Days"), periodStart("week", now)],
+    [t("thisMonth"), periodStart("month", now)],
+    [t("allTime"), null],
+  ];
+  // Two spaces past the longest label (13 columns in English).
+  const labelWidth = Math.max(...summaries.map(([label]) => label.length)) + 2;
+  for (const [label, from] of summaries) {
     const total = totalOf(within(records, from));
-    return `${label.padEnd(13)}${idr(total.cost)} · ${plural(total.requests, "request")}`;
-  };
-  lines.push(summaryRow("Today", periodStart("today", now)));
-  lines.push(summaryRow("Last 7 days", periodStart("week", now)));
-  lines.push(summaryRow("This month", periodStart("month", now)));
-  lines.push(summaryRow("All time", null));
-  lines.push("", "Per day", ...bars(dailyCosts(records, now)));
+    lines.push(`${label.padEnd(labelWidth)}${idr(total.cost)} · ${requestCount(total.requests)}`);
+  }
+  lines.push("", t("perDay"), ...bars(dailyCosts(records, now)));
 
   const scoped = within(records, periodStart(period, now));
-  lines.push("", `By model, ${TITLES[period]}`);
+  lines.push("", t("byModel", { period: periodTitle(period) }));
   const models = byModel(scoped);
-  if (models.length === 0) lines.push("No usage in this period.");
+  if (models.length === 0) lines.push(t("noUsagePeriod"));
   const nameWidth = Math.max(0, ...models.map(([name]) => name.length));
   for (const [name, total] of models) {
     const average = total.requests > 0 ? idr(total.cost / total.requests) : idr(0);
-    lines.push(`${name.padEnd(nameWidth)}  ${idr(total.cost)} · ${plural(total.requests, "request")} · ${average}/request · cache ${cachePercent(total)}`);
+    lines.push(
+      t("modelRow", {
+        name: name.padEnd(nameWidth),
+        cost: idr(total.cost),
+        requests: requestCount(total.requests),
+        average,
+        cache: cachePercent(total),
+      }),
+    );
   }
   const unpriced = totalOf(scoped).unpriced;
-  if (unpriced > 0) lines.push("", `${plural(unpriced, "response")} had no price, so their cost is not counted.`);
-  lines.push("", "Other periods: /usage history today | week | month | all");
+  if (unpriced > 0) lines.push("", t("unpriced", { responses: responseCount(unpriced) }));
+  lines.push("", t("otherPeriods"));
   return lines.join("\n");
 }

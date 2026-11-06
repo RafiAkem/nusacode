@@ -19,6 +19,18 @@ import {
   estimateTokens,
 } from "../lib/estimate.ts";
 import { CATALOG_CHANNEL, COST_CHANNEL, parsePrice, type CostEvent, type Price } from "./meter.ts";
+import { messages } from "../lib/i18n.ts";
+
+const t = messages(
+  {
+    confirmTitle: "Send this large message?",
+    confirmBody: "{estimate}\nTo skip this question, set NUSACODE_CONFIRM_ABOVE=off.",
+  },
+  {
+    confirmTitle: "Kirim pesan besar ini?",
+    confirmBody: "{estimate}\nSupaya pertanyaan ini tidak muncul lagi, set NUSACODE_CONFIRM_ABOVE=off.",
+  },
+);
 
 const PROVIDER = "nusagate";
 const TASK_TOOL = "task";
@@ -64,7 +76,7 @@ export default function estimate(pi: ExtensionAPI) {
     // A message queued while the agent is running can't be held back the same way.
     const askFirst = threshold !== null && estimated.totalIdr >= threshold && ctx.hasUI && !event.streamingBehavior;
     if (askFirst) {
-      const send = await ctx.ui.confirm("Send this large message?", `${line}\nTo skip this question, set NUSACODE_CONFIRM_ABOVE=off.`);
+      const send = await ctx.ui.confirm(t("confirmTitle"), t("confirmBody", { estimate: line }));
       if (!send) {
         ctx.ui.setEditorText(event.text);
         return { action: "handled" as const };

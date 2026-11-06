@@ -11,6 +11,32 @@
  * as a change. The list is deliberately short: a read-only command wrongly refused costs a retry,
  * and a change wrongly allowed costs a file.
  */
+import { format, messages, type Vars } from "./i18n.ts";
+
+const EN = {
+  run: "Run: {command}",
+  write: "Write {path} ({count} lines)",
+  editOne: "Edit {path} ({count} change)",
+  editMany: "Edit {path} ({count} changes)",
+  task: 'Start the "{agent}" subagent: {prompt}',
+  tool: "Use the {tool} tool",
+  statusPlan: "plan mode · read-only",
+  statusAsk: "ask mode · changes need approval",
+};
+const t = messages(EN, {
+  run: "Jalankan: {command}",
+  write: "Tulis {path} ({count} baris)",
+  editOne: "Edit {path} ({count} perubahan)",
+  editMany: "Edit {path} ({count} perubahan)",
+  task: 'Jalankan subagent "{agent}": {prompt}',
+  tool: "Pakai tool {tool}",
+  statusPlan: "mode plan · hanya baca",
+  statusAsk: "mode ask · perubahan perlu persetujuan",
+});
+type Say = (key: keyof typeof EN, vars?: Vars) => string;
+/** The model reads call summaries inside its tool results, so those stay English. */
+const english: Say = (key, vars) => format(EN[key], vars);
+
 export type Mode = "off" | "plan" | "ask";
 export type Shell = "bash" | "powershell";
 
@@ -159,16 +185,25 @@ function lineCount(text: string): number {
   return text === "" ? 0 : text.split("\n").length;
 }
 
-/** What the user is shown when asked to approve a call. */
-export function summarize(tool: string, input: Record<string, unknown>): string {
-  if (SHELL_TOOLS.has(tool)) return `Run: ${str(input.command).trim()}`;
-  if (tool === "write") return `Write ${str(input.path)} (${lineCount(str(input.content))} lines)`;
+function describeCall(say: Say, tool: string, input: Record<string, unknown>): string {
+  if (SHELL_TOOLS.has(tool)) return say("run", { command: str(input.command).trim() });
+  if (tool === "write") return say("write", { path: str(input.path), count: lineCount(str(input.content)) });
   if (tool === "edit") {
     const edits = Array.isArray(input.edits) ? input.edits.length : 1;
-    return `Edit ${str(input.path)} (${edits} change${edits === 1 ? "" : "s"})`;
+    return say(edits === 1 ? "editOne" : "editMany", { path: str(input.path), count: edits });
   }
-  if (tool === "task") return `Start the "${str(input.agent) || DEFAULT_AGENT}" subagent: ${str(input.prompt).slice(0, 120)}`;
-  return `Use the ${tool} tool`;
+  if (tool === "task") return say("task", { agent: str(input.agent) || DEFAULT_AGENT, prompt: str(input.prompt).slice(0, 120) });
+  return say("tool", { tool });
+}
+
+/** A call in a few words, in English: it goes into what the model reads back. */
+export function summarize(tool: string, input: Record<string, unknown>): string {
+  return describeCall(english, tool, input);
+}
+
+/** The same summary in the UI's language, for the question the user is asked. */
+export function summaryShown(tool: string, input: Record<string, unknown>): string {
+  return describeCall(t, tool, input);
 }
 
 /** A subagent only looks when its definition gives it nothing but read-only tools. An unknown agent could have any. */
@@ -213,7 +248,7 @@ export function modeNotice(mode: Mode): string {
 }
 
 export function statusText(mode: Mode): string | undefined {
-  if (mode === "plan") return "plan mode · read-only";
-  if (mode === "ask") return "ask mode · changes need approval";
+  if (mode === "plan") return t("statusPlan");
+  if (mode === "ask") return t("statusAsk");
   return undefined;
 }
