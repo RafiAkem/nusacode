@@ -279,3 +279,27 @@ test("setting a limit below what is already spent says so", async (t) => {
   await h.run("500");
   assert.match(h.notes.at(-1)?.message ?? "", /Rp 900 is already spent/);
 });
+
+test("with a limit set, a response that can't be priced is pointed out once", async (t) => {
+  const h = harness(t);
+  h.start();
+  h.cost(0, { unpriced: true });
+  assert.equal(h.notes.length, 0, "no limit, nothing to protect, nothing said");
+  await h.run("1000");
+  assert.match(h.notes.at(-1)?.message ?? "", /Note: some responses so far had no price/);
+  h.cost(0, { unpriced: true });
+  assert.equal(h.notes.filter((n) => n.level === "warning").length, 0, "already said when the limit was set");
+
+  const fresh = harness(t);
+  fresh.start();
+  await fresh.run("1000");
+  fresh.cost(0, { unpriced: true });
+  fresh.cost(0, { unpriced: true });
+  const warnings = fresh.notes.filter((n) => n.level === "warning");
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0].message, /had no price, and the budget can't count responses without a price .* can pass the limit without a warning/);
+  fresh.start();
+  await fresh.run("1000");
+  fresh.cost(0, { unpriced: true });
+  assert.equal(fresh.notes.filter((n) => n.level === "warning").length, 2, "said again in a new session");
+});
