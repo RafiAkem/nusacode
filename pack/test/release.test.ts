@@ -179,5 +179,5 @@ test("the notes command reads the earlier changelog from a file, and the workflo
   assert.match(workflow, /git show "\$last:CHANGELOG\.md" > previous-changelog\.md/);
   assert.match(workflow, /release\.cjs notes "\$VERSION" previous-changelog\.md/);
   assert.ok(workflow.indexOf("previous-changelog.md") < workflow.indexOf('git tag -a "v$VERSION"'), "the last tag is read before the new one exists");
-  assert.match(workflow, /\*\*Full Changelog\*\*/);
+  assert.match(workflow, /--notes-file notes\.md --generate-notes/, "the changelog first, then GitHub's credits and compare link");
 });

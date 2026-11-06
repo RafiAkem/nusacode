@@ -9,8 +9,8 @@ name: Publish
 #   higher: bump it there, and add a `## [x.y.z]` section to CHANGELOG.md, for a minor or major release.
 # - The release notes come from CHANGELOG.md: the section for that version when there is one,
 #   otherwise the entries added under "Unreleased" since the last release tag, so nobody has to
-#   move entries by hand. Only when neither has anything are notes generated from the pull
-#   requests and commits since the last release.
+#   move entries by hand. GitHub's generated notes (pull requests, new contributors, the compare
+#   link) follow them, or stand alone when the changelog has nothing new.
 # - The tag points at the commit that was published. That commit still says the old version in
 #   package.json, because the bump is made on the runner only.
 #
@@ -114,8 +114,9 @@ jobs:
           git tag -a "v$VERSION" -m "NusaCode $VERSION"
           git push origin "v$VERSION"
           if node scripts/release.cjs notes "$VERSION" previous-changelog.md > notes.md; then
-            if [ -n "$last" ]; then printf '\n**Full Changelog**: %s/compare/%s...v%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$last" "$VERSION" >> notes.md; fi
-            gh release create "v$VERSION" --title "v$VERSION" --notes-file notes.md --verify-tag
+            # The changelog goes first; GitHub's generated part follows it, which credits pull
+            # requests and new contributors and links the full comparison.
+            gh release create "v$VERSION" --title "v$VERSION" --notes-file notes.md --generate-notes --verify-tag
           else
             gh release create "v$VERSION" --title "v$VERSION" --generate-notes --verify-tag
           fi
