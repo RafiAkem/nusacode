@@ -18,7 +18,11 @@ test.after(() => rmSync(target, { recursive: true, force: true }));
 
 const read = (file: string) => readFileSync(join(target, file), "utf8");
 
-test("every patch still matches the pinned pi (a pi bump that breaks one fails here)", () => {
+// The weekly upgrade check (.github/workflows/pi-upgrade.yml) installs a newer pi on purpose, and
+// what it needs to learn is whether the patches still apply, which the build above already proves.
+const upgradeCheck = process.env.NUSACODE_PI_UPGRADE_CHECK === "1";
+
+test("every patch still matches the pinned pi (a pi bump that breaks one fails here)", { skip: upgradeCheck && "checking a newer pi on purpose" }, () => {
   // buildPi above would have thrown; this pins the version the patches were written for.
   assert.equal(JSON.parse(readFileSync(join(piDir, "package.json"), "utf8")).version, "1.5.0");
 });

@@ -82,6 +82,15 @@ and a short terminal too.
 The pi version is pinned in `package.json`, so an upgrade is its own deliberate change. Read pi's changelog for
 breaking changes, run the tests, and run a real session, including a `task` call and first-time setup.
 
+You don't have to find out by trying. Every Monday the [Check the newest pi](.github/workflows/pi-upgrade.yml) workflow
+installs pi's newest release without saving it, checks that each source patch in `scripts/pi-build.cjs` still applies
+(`node scripts/check-pi-patches.cjs` does the same locally, and names every patch that fails), and runs the tests. If that
+fails it opens one issue, "pi X breaks NusaCode". If it passes, its summary says so.
+
+`pack/test/smoke.test.ts` is part of that: it runs the real app against a small local server that pretends to be a model,
+with every extension loaded and a tool call in the middle, so an upgrade that breaks something an extension relies on
+fails there even though the unit tests, which use a fake pi, can't see it.
+
 ## Pull requests
 
 1. Fork the repo and branch from `main`.
