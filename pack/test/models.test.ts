@@ -61,8 +61,9 @@ test("a new catalog is registered and cached for the next startup", (t) => {
   const { dir, registered, publish } = load(t);
   publish([row("a", "Model A", 2000), row("b")]);
   assert.deepEqual(registered[0].models.map((m) => [m.id, m.name, m.contextWindow, m.maxTokens]), [
-    ["a", "Model A", 2000, 16_384],
-    ["b", "b", 1000, 16_384],
+    // These windows are smaller than the default output limit, which is cut down to fit.
+    ["a", "Model A", 2000, 2000],
+    ["b", "b", 1000, 1000],
   ]);
   const cached = JSON.parse(readFileSync(join(dir, "nusagate-models.json"), "utf8"));
   assert.deepEqual(parseCatalog(cached.models).map((m) => m.id), ["a", "b"]);

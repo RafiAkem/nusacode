@@ -41,9 +41,11 @@ test("the user's file beats the built-in table", () => {
   assert.equal(resolveCapabilities("deepseek-v4.1-flash", 1000, { "deepseek-v4.1-flash": { vision: false } }).vision, false);
 });
 
-test("a limit the user sets can't be longer than the context window", () => {
+test("no output limit is longer than the context window", () => {
   assert.equal(resolveCapabilities("tiny", 8000, { tiny: { maxOutput: 50_000 } }).maxOutput, 8000);
-  assert.equal(resolveCapabilities("tiny", 8000).maxOutput, DEFAULT_MAX_OUTPUT, "the default is left alone");
+  assert.equal(resolveCapabilities("tiny", 8000).maxOutput, 8000, "the default too");
+  assert.equal(resolveCapabilities("tiny", 100_000, { "tiny-*": { contextWindow: 8192 } }).maxOutput, DEFAULT_MAX_OUTPUT, "an override that doesn't match changes nothing");
+  assert.equal(resolveCapabilities("tiny-1", 100_000, { "tiny-*": { contextWindow: 8192 } }).maxOutput, 8192, "a smaller window from an override caps the default");
 });
 
 test("a context window override replaces the catalog's figure", () => {

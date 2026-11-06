@@ -79,8 +79,8 @@ export function resolveCapabilities(
   const contextWindow = merged.contextWindow ?? catalogContextWindow;
   return {
     vision: merged.vision ?? false,
-    // A limit the user sets can't exceed the window the response has to fit in.
-    maxOutput: merged.maxOutput === undefined ? DEFAULT_MAX_OUTPUT : Math.min(merged.maxOutput, contextWindow),
+    // A response can't be longer than the window it has to fit in, whoever set the limit.
+    maxOutput: Math.min(merged.maxOutput ?? DEFAULT_MAX_OUTPUT, contextWindow),
     contextWindow,
   };
 }
