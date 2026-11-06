@@ -98,7 +98,7 @@ function parseAgent(fallbackName: string, text: string): Agent | null {
   };
 }
 
-function loadAgents(): Map<string, Agent> {
+export function loadAgents(): Map<string, Agent> {
   const agents = new Map<string, Agent>();
   const dir = agentsDir();
   let files: string[];

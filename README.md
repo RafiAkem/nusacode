@@ -105,9 +105,11 @@ Start a message with `!` to run a shell command, or `!!` to run it without sendi
 `alt+m` toggles plan mode, and `nusacode --plan` starts a session in it. The status bar shows the mode while it is on.
 
 In plan mode a shell command only runs if it is plainly read-only: `ls`, `cat`, `grep`, `git status`, `git log` and a
-few others, with no redirects or substitutions. Everything else is refused, and the agent is told to plan instead. The
-list is short on purpose. If something harmless is refused, run it yourself with `!`, or use `/plan ask`. Subagents are
-limited to the read-only ones (`explorer`, `researcher`, `reviewer`), and tools NusaCode doesn't know are refused too.
+few others, with no redirects, substitutions or brackets (even inside double quotes, where the shell still runs them).
+Everything else is refused, and the agent is told to plan instead. The list is short on purpose. If something harmless
+is refused, run it yourself with `!`, or use `/plan ask`. A subagent may only run if its file in `~/.nusacode/agents/`
+gives it nothing but `read`, `grep`, `find` and `ls` (as `explorer`, `researcher` and `reviewer` do out of the box),
+and tools NusaCode doesn't know are refused too.
 
 ## How it works
 

@@ -11,11 +11,13 @@
  * model when the mode changes (as a message at the end of the conversation, because changing
  * the system prompt would throw away the provider's prompt cache), and keeps the status bar honest.
  *
- * It guards the main agent only. A `task` subagent is limited to the read-only agents instead,
- * since a child process doesn't load this extension.
+ * It guards the main agent only. A child process doesn't load this extension, so a `task` subagent
+ * is only allowed when its definition file (read fresh each time, since it can be edited) gives it
+ * nothing but read-only tools.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { judge, modeNotice, parseMode, statusText, type Mode } from "../lib/plan-mode.ts";
+import { judge, modeNotice, parseMode, statusText, type AgentTools, type Mode } from "../lib/plan-mode.ts";
+import { loadAgents } from "./subagents.ts";
 
 const STATUS_KEY = "nusa-mode";
 const ALLOW = "Allow";
@@ -45,7 +47,8 @@ export default function plan(pi: ExtensionAPI) {
   });
 
   pi.on("tool_call", async (event, ctx) => {
-    const verdict = judge(mode, event.toolName, event.input as Record<string, unknown>);
+    const agentTools: AgentTools = (name) => loadAgents().get(name)?.tools.split(",").filter(Boolean);
+    const verdict = judge(mode, event.toolName, event.input as Record<string, unknown>, agentTools);
     if (verdict.kind === "allow") return undefined;
     if (verdict.kind === "block") return { block: true, reason: verdict.reason };
     if (!ctx.hasUI) {

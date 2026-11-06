@@ -7,22 +7,23 @@
  *
  * The shell is the hard part, because a command can do anything. A command only counts as
  * read-only when every piece of it is on a short list of commands that only look, with no
- * redirects, no substitutions and no options known to write. Anything else is treated as a
- * change. The list is deliberately short: a read-only command wrongly refused costs a retry,
+ * redirects, no substitutions, no grouping and no options known to write. Anything else is treated
+ * as a change. The list is deliberately short: a read-only command wrongly refused costs a retry,
  * and a change wrongly allowed costs a file.
  */
 export type Mode = "off" | "plan" | "ask";
+export type Shell = "bash" | "powershell";
 
 /** Tools that only look. `ask` shows the user a question and changes nothing. */
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "ask"]);
+/** A subagent may run in plan mode when every tool it has is one of these. */
+const READ_ONLY_AGENT_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const SHELL_TOOLS = new Set(["bash", "powershell"]);
-/** Subagents whose tools are all read-only (see config/agents). */
-const READ_ONLY_AGENTS = new Set(["explorer", "researcher", "reviewer"]);
 const DEFAULT_AGENT = "explorer";
 
 /** Commands that only look, in bash and PowerShell. Compared in lower case, without a directory. */
 const LOOK_ONLY = new Set([
-  "ls", "dir", "pwd", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep", "rg", "stat", "file",
+  "ls", "dir", "pwd", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep", "rg", "stat",
   "which", "where", "type", "echo", "diff", "cut", "tr", "basename", "dirname", "realpath", "uname",
   "whoami", "du", "df", "true", "false",
   "get-childitem", "gci", "get-content", "gc", "select-string", "sls", "get-location", "gl", "test-path",
@@ -32,23 +33,71 @@ const LOOK_ONLY = new Set([
 
 /** `find` options that run programs or write files. */
 const FIND_WRITES = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]);
-/** `sort` writes to the file named by -o. */
-const SORT_WRITES = /^(-o|--output)/;
+/** `sort -o FILE` writes, also when `o` is one of several short flags, as in `-uo`. */
+const SORT_WRITES = /^(?:-[^-]*o|--output)/;
 
-/** git subcommands that only read. `branch`, `tag`, `remote` and `stash` are checked separately. */
+/** git subcommands that only read. `branch`, `tag`, `remote`, `stash` and `reflog` are checked separately. */
 const GIT_READS = new Set([
   "status", "log", "diff", "show", "ls-files", "ls-tree", "rev-parse", "rev-list", "blame", "shortlog",
-  "describe", "grep", "cat-file", "name-rev", "reflog",
+  "describe", "grep", "cat-file", "name-rev",
 ]);
 const GIT_BRANCH_FLAGS = new Set(["-a", "-r", "-v", "-vv", "--list", "--show-current", "--all", "--remotes", "-l"]);
 
-/** Replaces quoted text with an empty pair, so quoted `>` and `;` aren't mistaken for syntax. */
-function withoutQuotes(command: string): string {
-  return command.replace(/"(?:[^"\\]|\\.)*"/g, '""').replace(/'[^']*'/g, "''");
+type Scanned = {
+  /** The command with quoted text blanked out, so only what the shell itself reads is left. */
+  plain: string;
+  /** A substitution inside double quotes (which the shell still runs), or a quote left open. */
+  unsafeQuote: boolean;
+};
+
+/**
+ * Reads the command the way a shell does: single quotes are literal, double quotes still run
+ * `$(...)` and backticks, and (in bash) a backslash makes the next character literal. Quoted and
+ * escaped characters become `x`, so a quoted `>` or `;` isn't mistaken for syntax, while words keep
+ * their shape for the checks that follow.
+ */
+function scan(command: string, shell: Shell): Scanned {
+  let plain = "";
+  let unsafeQuote = false;
+  let state: "none" | "single" | "double" = "none";
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i];
+    if (state === "single") {
+      if (c === "'") state = "none";
+      plain += c === "'" ? "'" : "x";
+    } else if (state === "double") {
+      if (c === '"') {
+        state = "none";
+        plain += '"';
+      } else if (c === "`" || (c === "$" && command[i + 1] === "(")) {
+        unsafeQuote = true;
+        plain += "x";
+      } else if (c === "\\" && shell === "bash") {
+        plain += "xx";
+        i++;
+      } else {
+        plain += "x";
+      }
+    } else if (c === "'") {
+      state = "single";
+      plain += c;
+    } else if (c === '"') {
+      state = "double";
+      plain += c;
+    } else if (c === "\\" && shell === "bash") {
+      plain += "xx";
+      i++;
+    } else {
+      plain += c;
+    }
+  }
+  // An unclosed quote: the shell would wait for more input or fail. Either way it isn't plainly looking.
+  if (state !== "none") unsafeQuote = true;
+  return { plain, unsafeQuote };
 }
 
-/** Redirects that discard output or merge streams; they write nothing a plan has to worry about. */
-const HARMLESS_REDIRECTS = /(?:\d?>&\d|\d?>>?\s*\/dev\/null|\d?>>?\s*nul\b|&>\s*\/dev\/null)/gi;
+/** Redirects that discard output or merge streams. The lookahead stops `nul.txt` or `/dev/nullx` passing as these. */
+const HARMLESS_REDIRECTS = /(?:\d?>&\d|&>\s*\/dev\/null|\d?>>?\s*(?:\/dev\/null|nul))(?=$|[\s;&|])/gi;
 
 function segmentIsReadOnly(segment: string): boolean {
   const tokens = segment.trim().split(/\s+/).filter(Boolean);
@@ -74,21 +123,28 @@ function gitIsReadOnly(args: string[]): boolean {
   if (sub === "tag") return rest.every((token) => token === "-l" || token === "--list");
   if (sub === "remote") return rest.every((token) => token === "-v");
   if (sub === "stash") return rest[0] === "list" || rest[0] === "show";
+  // `git reflog` and `git reflog show` read; `expire` and `delete` throw history away for good.
+  if (sub === "reflog") return !rest.some((token) => token === "expire" || token === "delete") && (rest[0] === undefined || rest[0] === "show" || rest[0].startsWith("-"));
   return false;
 }
 
 /** True only when the command surely just looks at things. */
-export function isReadOnlyCommand(command: string): boolean {
+export function isReadOnlyCommand(command: string, shell: Shell = "bash"): boolean {
   if (command.trim() === "") return false;
-  const plain = withoutQuotes(command);
-  // Substitutions and braces can hide a second command or a script block.
-  if (/[`{}]|\$\(|<\(|>\(/.test(plain)) return false;
+  const { plain, unsafeQuote } = scan(command, shell);
+  if (unsafeQuote) return false;
+  // Each of these can hide a second command: `$(...)`, backticks, a script block, a subshell, or
+  // PowerShell running whatever is inside `(...)` and `@(...)`.
+  if (/[`{}()]|\$\(/.test(plain)) return false;
   const rest = plain.replace(HARMLESS_REDIRECTS, " ");
   if (rest.includes(">")) return false;
   return rest.split(/&&|\|\||[;|&\n\r]/).every(segmentIsReadOnly);
 }
 
 export type Verdict = { kind: "allow" } | { kind: "block"; reason: string } | { kind: "ask"; summary: string };
+
+/** The tools a subagent would run with, from its definition file; undefined when there is no such agent. */
+export type AgentTools = (name: string) => string[] | undefined;
 
 const PLAN_REASON =
   "Plan mode is on, so nothing can be changed and no commands that change anything can run. " +
@@ -115,12 +171,21 @@ export function summarize(tool: string, input: Record<string, unknown>): string 
   return `Use the ${tool} tool`;
 }
 
-/** Whether a tool call may go ahead in the given mode. */
-export function judge(mode: Mode, tool: string, input: Record<string, unknown>): Verdict {
+/** A subagent only looks when its definition gives it nothing but read-only tools. An unknown agent could have any. */
+function agentOnlyLooks(name: string, agentTools: AgentTools | undefined): boolean {
+  const tools = agentTools?.(name);
+  return tools !== undefined && tools.every((tool) => READ_ONLY_AGENT_TOOLS.has(tool.trim().toLowerCase()));
+}
+
+/**
+ * Whether a tool call may go ahead in the given mode. `agentTools` reads a subagent's definition,
+ * because those files can be edited, so the name alone says nothing about what the agent may do.
+ */
+export function judge(mode: Mode, tool: string, input: Record<string, unknown>, agentTools?: AgentTools): Verdict {
   if (mode === "off" || READ_ONLY_TOOLS.has(tool)) return { kind: "allow" };
   const looksOnly =
-    (SHELL_TOOLS.has(tool) && isReadOnlyCommand(str(input.command))) ||
-    (tool === "task" && READ_ONLY_AGENTS.has(str(input.agent) || DEFAULT_AGENT));
+    (SHELL_TOOLS.has(tool) && isReadOnlyCommand(str(input.command), tool === "powershell" ? "powershell" : "bash")) ||
+    (tool === "task" && agentOnlyLooks(str(input.agent) || DEFAULT_AGENT, agentTools));
   if (looksOnly) return { kind: "allow" };
   return mode === "plan" ? { kind: "block", reason: PLAN_REASON } : { kind: "ask", summary: summarize(tool, input) };
 }

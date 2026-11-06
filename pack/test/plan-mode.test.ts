@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isReadOnlyCommand, judge, modeNotice, parseMode, statusText, summarize } from "../lib/plan-mode.ts";
+import { isReadOnlyCommand, judge, modeNotice, parseMode, statusText, summarize, type AgentTools } from "../lib/plan-mode.ts";
 import plan from "../extensions/plan.ts";
 
 test("commands that only look are allowed", () => {
@@ -33,9 +33,55 @@ test("commands that only look are allowed", () => {
     "echo 'a > b'",
     'grep "a;b" file',
     "sort names.txt",
+    "sort -u names.txt",
+    "find . \\( -name '*.ts' -o -name '*.js' \\)",
+    "git reflog",
+    "git reflog -n 5",
+    "git reflog show main",
+    "ls >nul",
+    'grep "it\'s" notes.txt',
+    'echo "hello $HOME"',
   ]) {
     assert.equal(isReadOnlyCommand(command), true, command);
   }
+});
+
+test("commands hidden in quotes, brackets or look-alike redirects are caught", () => {
+  for (const command of [
+    // bash and PowerShell both run substitutions inside double quotes
+    'echo "$(rm -rf src)"',
+    'echo "`rm -rf src`"',
+    // a single quote inside double quotes is literal, so it hides nothing
+    "echo \"a'$(rm x)'b\"",
+    // PowerShell runs whatever is inside (...) and @(...)
+    "Write-Output (Remove-Item -Recurse src)",
+    "echo @(Remove-Item src)",
+    "gc (Remove-Item x)",
+    // a bash subshell
+    "( rm x )",
+    "ls; (rm x)",
+    // looks like a harmless redirect, writes a real file
+    "cat a > nul.txt",
+    "cat a >/dev/nullx",
+    // -o hidden among combined short flags
+    "sort -uo out.txt in.txt",
+    "sort -ro out.txt in.txt",
+    // throws history away
+    "git reflog expire --expire=now --all",
+    "git reflog delete HEAD@{1}",
+    "git reflog --all expire",
+    // file -C writes a compiled magic file
+    "file -C -m magic",
+    // an unclosed quote
+    "echo \"unterminated",
+  ]) {
+    assert.equal(isReadOnlyCommand(command), false, JSON.stringify(command));
+  }
+  for (const command of ["Write-Output (Remove-Item -Recurse src)", "echo @(Remove-Item src)", 'Write-Output "$(Remove-Item x)"']) {
+    assert.equal(isReadOnlyCommand(command, "powershell"), false, `powershell: ${command}`);
+  }
+  assert.equal(isReadOnlyCommand("Get-ChildItem src | Select-String 'TODO'", "powershell"), true);
+  assert.equal(judge("plan", "powershell", { command: "Write-Output (Remove-Item -Recurse src)" }).kind, "block");
 });
 
 test("commands that could change anything are not", () => {
@@ -123,13 +169,32 @@ test("plan mode allows looking and refuses the rest, with a reason the model can
   }
 });
 
-test("a subagent may run in plan mode only when all its tools are read-only", () => {
-  assert.equal(judge("plan", "task", { agent: "explorer", prompt: "x" }).kind, "allow");
-  assert.equal(judge("plan", "task", { prompt: "x" }).kind, "allow", "explorer is the default");
-  assert.equal(judge("plan", "task", { agent: "reviewer", prompt: "x" }).kind, "allow");
-  assert.equal(judge("plan", "task", { agent: "writer", prompt: "x" }).kind, "block");
-  assert.equal(judge("plan", "task", { agent: "test-runner", prompt: "x" }).kind, "block");
-  assert.equal(judge("plan", "task", { agent: "mine", prompt: "x" }).kind, "block", "an unknown agent could have any tools");
+/** Agent definitions as they ship in config/agents. */
+const shipped: AgentTools = (name) =>
+  ({
+    explorer: ["read", "grep", "find", "ls"],
+    researcher: ["read", "grep", "find", "ls"],
+    reviewer: ["read", "grep", "find", "ls"],
+    "test-runner": ["read", "grep", "bash"],
+    writer: ["read", "grep", "edit", "write"],
+    silent: [],
+  })[name];
+
+test("a subagent may run in plan mode only when its definition gives it read-only tools", () => {
+  assert.equal(judge("plan", "task", { agent: "explorer", prompt: "x" }, shipped).kind, "allow");
+  assert.equal(judge("plan", "task", { prompt: "x" }, shipped).kind, "allow", "explorer is the default");
+  assert.equal(judge("plan", "task", { agent: "reviewer", prompt: "x" }, shipped).kind, "allow");
+  assert.equal(judge("plan", "task", { agent: "silent", prompt: "x" }, shipped).kind, "allow", "no tools at all only looks");
+  assert.equal(judge("plan", "task", { agent: "writer", prompt: "x" }, shipped).kind, "block");
+  assert.equal(judge("plan", "task", { agent: "test-runner", prompt: "x" }, shipped).kind, "block");
+  assert.equal(judge("plan", "task", { agent: "mine", prompt: "x" }, shipped).kind, "block", "an unknown agent could have any tools");
+  assert.equal(judge("plan", "task", { agent: "explorer", prompt: "x" }).kind, "block", "with no way to read definitions, nothing is trusted");
+});
+
+test("an agent is judged by what its file says now, not by its name", () => {
+  const edited: AgentTools = (name) => (name === "explorer" ? ["read", "bash", "edit", "write"] : undefined);
+  assert.equal(judge("plan", "task", { agent: "explorer", prompt: "x" }, edited).kind, "block");
+  assert.equal(judge("ask", "task", { agent: "explorer", prompt: "x" }, edited).kind, "ask");
 });
 
 test("normal mode allows everything", () => {
@@ -149,8 +214,8 @@ test("ask mode lets looking through and asks about each change, showing what it 
   assert.equal(summarize("edit", { path: "a", edits: [{}] }), "Edit a (1 change)");
   assert.equal(summarize("task", { agent: "writer", prompt: "fix it" }), 'Start the "writer" subagent: fix it');
   assert.deepEqual(judge("ask", "some_mcp_tool", {}), { kind: "ask", summary: "Use the some_mcp_tool tool" });
-  assert.equal(judge("ask", "task", { agent: "explorer" }).kind, "allow");
-  assert.equal(judge("ask", "task", { agent: "writer" }).kind, "ask");
+  assert.equal(judge("ask", "task", { agent: "explorer" }, shipped).kind, "allow");
+  assert.equal(judge("ask", "task", { agent: "writer" }, shipped).kind, "ask");
 });
 
 test("the command words", () => {
