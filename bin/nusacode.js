@@ -21,6 +21,20 @@ if (process.argv[2] === "update") {
   process.exit(0);
 }
 
+// --version names both halves: this package and the pi it runs on, which matters when
+// a report comes in and someone has to tell which one a bug belongs to.
+if (process.argv.length === 3 && (process.argv[2] === "--version" || process.argv[2] === "-v")) {
+  const own = require(path.join(root, "package.json")).version;
+  let pi = "unknown";
+  try {
+    pi = require(path.join(piPackageDir(), "package.json")).version;
+  } catch {
+    // Not installed yet: still say what NusaCode is.
+  }
+  console.log(`nusacode ${own} (pi ${pi})`);
+  process.exit(0);
+}
+
 const home =path.resolve(process.env.NUSACODE_HOME || path.join(os.homedir(), ".nusacode"));
 const sessionDir = path.join(home, "sessions");
 

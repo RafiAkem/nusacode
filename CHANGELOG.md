@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- `nusacode --version` prints both the NusaCode and the pi version.
+
 ## [0.1.0] - 2026-11-06
 
 First public release.

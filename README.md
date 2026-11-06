@@ -261,7 +261,7 @@ fullscreen mode, with its in-app scrollbar and search, set `"tuiMode": "fullscre
 
 pi's `install`, `remove`, `list`, `config`, `auth` and `mcp` commands work through `nusacode` and use the NusaCode
 home. `nusacode update` prints the update steps instead of running pi's updater, which would install a separate
-global pi rather than the version this package pins. `--version` reports pi's version.
+global pi rather than the version this package pins. `nusacode --version` prints both versions, for example `nusacode 0.1.0 (pi 1.5.0)`.
 
 ## Contributing
 

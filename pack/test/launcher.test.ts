@@ -59,3 +59,15 @@ test("a longer quoted prompt that starts with update is still a prompt", (t) => 
   const quoted = run(t, "update the readme", "-p");
   assert.doesNotMatch(quoted.stdout + quoted.stderr, /git pull/);
 });
+
+test("--version names NusaCode and the pi it runs on, and starts nothing", (t) => {
+  const root = join(import.meta.dirname, "..", "..");
+  const own = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+  const pi = JSON.parse(readFileSync(join(root, "node_modules", "@earendil-works", "pi-coding-agent", "package.json"), "utf8")).version;
+  for (const flag of ["--version", "-v"]) {
+    const { status, stdout, home } = run(t, flag);
+    assert.equal(status, 0);
+    assert.equal(stdout.trim(), `nusacode ${own} (pi ${pi})`);
+    assert.equal(existsSync(join(home, "settings.json")), false, "exited before seeding the home");
+  }
+});
