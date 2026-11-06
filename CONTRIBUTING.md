@@ -91,6 +91,9 @@ breaking changes, run the tests, and run a real session, including a `task` call
 
 Commit messages are short imperative sentences, such as `Fix the balance row on narrow terminals`.
 
+Every push to `main` that changes code is published to [npm](https://www.npmjs.com/package/nusacode) as the next
+patch version. For a minor or major release, raise `version` in `package.json` in the same change.
+
 ## Reporting bugs
 
 [Open an issue](https://github.com/RafiAkem/nusacode/issues/new/choose) with your OS, terminal, Node version and the

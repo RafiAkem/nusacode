@@ -7,6 +7,7 @@
 Optimized for [NusaGate](https://nusagate.com), but not locked to it. Built on
 [pi](https://github.com/earendil-works/pi), with room for your own providers.
 
+[![npm](https://img.shields.io/npm/v/nusacode?style=flat-square&labelColor=0f3a2a&color=4ed899)](https://www.npmjs.com/package/nusacode)
 [![Tests](https://img.shields.io/github/actions/workflow/status/RafiAkem/nusacode/test.yml?branch=main&label=tests&style=flat-square&labelColor=0f3a2a)](https://github.com/RafiAkem/nusacode/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-4ed899?style=flat-square&labelColor=0f3a2a)](LICENSE)
 [![Node.js >= 22.19](https://img.shields.io/badge/node-%3E%3D22.19-4ed899?style=flat-square&labelColor=0f3a2a)](package.json)
@@ -36,6 +37,9 @@ type what you want done.
 
 To try it without installing, run `npx nusacode`. To update, run `npm install -g nusacode@latest`.
 To run from source instead, see [Contributing](#contributing).
+
+If npm warns that it skipped install scripts for `@google/genai` and `protobufjs`, you can ignore it:
+NusaCode runs without them.
 
 ## See it in action
 
