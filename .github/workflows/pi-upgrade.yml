@@ -1,0 +1,80 @@
+name: Check the newest pi
+
+# NusaCode pins pi to one exact version and patches its source, so moving to a newer pi is a deliberate
+# change. This checks every week whether the newest pi would still work, so a break is found before
+# anyone tries the upgrade: it installs that pi without saving it, checks that each source patch still
+# applies, and runs the tests (which include a real run of the app against a local mock model).
+#
+# It never changes package.json and opens no pull request. When the newest pi breaks something it opens
+# one issue, and only one, however many weeks it stays broken.
+on:
+  schedule:
+    - cron: "17 3 * * 1" # Mondays, 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Compare with the pinned version
+        id: versions
+        run: |
+          pinned=$(node -p "require('./package.json').dependencies['@earendil-works/pi-coding-agent']")
+          latest=$(npm view @earendil-works/pi-coding-agent version)
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          if [ "$pinned" = "$latest" ]; then
+            echo "pi $pinned is already the newest: nothing to check."
+            echo "newer=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "NusaCode pins pi $pinned; the newest is $latest."
+            echo "newer=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install the newest pi without saving it
+        if: steps.versions.outputs.newer == 'true'
+        env:
+          LATEST: ${{ steps.versions.outputs.latest }}
+        run: npm install --no-save --ignore-scripts "@earendil-works/pi-coding-agent@$LATEST"
+      - name: Do the source patches still apply?
+        if: steps.versions.outputs.newer == 'true'
+        run: node scripts/check-pi-patches.cjs
+      - name: Run the tests against it
+        if: steps.versions.outputs.newer == 'true'
+        env:
+          NUSACODE_PI_UPGRADE_CHECK: "1"
+        run: npm test
+      - name: Say that it works
+        if: steps.versions.outputs.newer == 'true'
+        env:
+          LATEST: ${{ steps.versions.outputs.latest }}
+        run: |
+          {
+            echo "### pi $LATEST works with NusaCode"
+            echo
+            echo "The patches apply and the tests pass. To upgrade, change the pinned version in package.json, run npm install, and try a real session including a task call and first-time setup."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Open an issue if it does not
+        if: failure() && steps.versions.outputs.newer == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.versions.outputs.latest }}
+        run: |
+          title="pi $LATEST breaks NusaCode"
+          open=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq 'length')
+          if [ "$open" != "0" ]; then
+            echo "Already reported."
+            exit 0
+          fi
+          run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh issue create --title "$title" --body "The weekly check installed pi $LATEST and something no longer works: a source patch in scripts/pi-build.cjs stopped matching, the patches would not reach the code pi runs, or a test failed. The run has the details: $run
+
+          NusaCode stays on the pinned version until this is fixed, so nothing is broken for users. See Upgrading pi in CONTRIBUTING.md."
