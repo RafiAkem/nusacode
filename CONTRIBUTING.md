@@ -43,6 +43,7 @@ pack/extensions/                 every file here is loaded as a pi extension
   learn.ts                       automatic skills, /skills
   token-saver.ts                 cache guard, output truncation, thinking routing
   subagents.ts                   task tool
+  plan.ts                        /plan: read-only and ask-first modes
 pack/lib/                        shared code that isn't an extension
 pack/themes/                     nusagate-dark and nusagate-light themes
 pack/test/                       tests

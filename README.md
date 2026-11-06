@@ -79,6 +79,7 @@ what that cost. The session and its costs are real; only the balance is sample d
 | `/setup` | Run first-time setup again |
 | `/sessions` | Switch session in one step; add words to filter, or `all` to search every folder |
 | `/resume` | Continue an earlier session |
+| `/plan` | Toggle plan mode, where the agent can read but not change anything. `/plan ask` makes it ask before each change. See [Plan mode](#plan-mode) |
 
 Start a message with `!` to run a shell command, or `!!` to run it without sending the output to the model.
 
@@ -89,6 +90,7 @@ Start a message with `!` to run a shell command, or `!!` to run it without sendi
 | `alt+i` | Enlarge the attached image, then the next one, then close |
 | `alt+o` | Open the attached image in your image viewer at full size |
 | `alt+v` | Paste an image or file from the clipboard (`ctrl+v` outside Windows) |
+| `alt+m` | Toggle plan mode |
 | `ctrl+l` | Switch model |
 | `escape` | Interrupt the agent |
 | `ctrl+d` | Exit |
@@ -128,6 +130,25 @@ it to `off` to be told but never asked.
 
 When the agent starts several subagents at once, you're told what that will probably cost, from what the subagents
 before them cost in the same session.
+
+## Plan mode
+
+`/plan` lets the agent look around without touching anything, so you can agree on an approach before it edits files.
+
+| Command | What the agent can do |
+| --- | --- |
+| `/plan` | Read and search only. It describes the change it would make, and you leave plan mode with `/plan` or `/plan off` |
+| `/plan ask` | Read and search freely; every file change and command is shown to you first: allow it, allow everything from now on, or deny it |
+| `/plan off` | Back to normal |
+
+`alt+m` toggles plan mode, and `nusacode --plan` starts a session in it. The status bar shows the mode while it is on.
+
+In plan mode a shell command only runs if it is plainly read-only: `ls`, `cat`, `grep`, `git status`, `git log` and a
+few others, with no redirects, substitutions or brackets (even inside double quotes, where the shell still runs them).
+Everything else is refused, and the agent is told to plan instead. The list is short on purpose. If something harmless
+is refused, run it yourself with `!`, or use `/plan ask`. A subagent may only run if its file in `~/.nusacode/agents/`
+gives it nothing but `read`, `grep`, `find` and `ls` (as `explorer`, `researcher` and `reviewer` do out of the box),
+and tools NusaCode doesn't know are refused too.
 
 ## How it works
 
