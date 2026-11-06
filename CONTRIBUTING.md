@@ -35,6 +35,7 @@ config/                          default settings, provider and subagent definit
 pack/extensions/                 every file here is loaded as a pi extension
   brand.ts                       welcome screen, status bar, tool activity text
   meter.ts                       rupiah cost meter, /usage, /topup
+  budget.ts                      /budget spending limits
   models.ts                      /model list from NusaGate's catalog
   setup.ts                       first-time setup, /setup, /import-config
   learn.ts                       automatic skills, /skills

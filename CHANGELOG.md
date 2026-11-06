@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `/budget` sets a spending limit for the session, with a warning at 80% and a stop at 100%, and a warning for any single prompt that costs too much. `--default` keeps a limit for new sessions.
+
 ## [0.1.0] - 2026-11-06
 
 First public release.

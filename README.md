@@ -55,6 +55,7 @@ what that cost. The session and its costs are real; only the balance is sample d
 |  |  |
 | --- | --- |
 | **Real costs in rupiah** | Each response is priced with the gateway's own billing formula, using live prices. Your balance, cost, cache hit rate and speed stay in view. |
+| **Spending limits** | `/budget 5000` stops the agent at Rp 5.000 for the session, with a warning at 80%. `/budget turn 500` warns when one prompt gets expensive. |
 | **Every NusaGate model** | `/model` lists the live catalog: DeepSeek, GPT, Gemini, GLM, Grok, Kimi, MiniMax, Qwen and more. |
 | **Learns as you work** | After substantial tasks, a background review can save what it learned as a reusable skill. |
 | **Brings your setup with it** | Import skills and global instructions from Claude Code, Codex, oh-my-pi, pi and OpenCode. |
@@ -69,6 +70,7 @@ what that cost. The session and its costs are real; only the balance is sample d
 | --- | --- |
 | `/usage` | Show session cost, tokens, cache hit rate, speed and balance |
 | `/topup` | Show your balance and a top-up link |
+| `/budget` | Set a spending limit for the session, or a warning for a single prompt. See [Budget](#budget) |
 | `/model` | Switch model |
 | `/thinking` | Pick how hard the model thinks, or `/thinking high`. `shift+tab` cycles the levels. Only DeepSeek models support it |
 | `/skills` | List learned skills; `/skills delete <name>` removes one |
@@ -89,6 +91,23 @@ Start a message with `!` to run a shell command, or `!!` to run it without sendi
 | `ctrl+l` | Switch model |
 | `escape` | Interrupt the agent |
 | `ctrl+d` | Exit |
+
+## Budget
+
+`/budget` keeps cost from running away, in rupiah:
+
+| Command | What it does |
+| --- | --- |
+| `/budget` | Show what is spent and what is left |
+| `/budget 5000` | Limit this session to Rp 5.000. Also `5.000`, `Rp 5.000`, `5k` or `1.5m` |
+| `/budget turn 500` | Warn once when a single prompt costs more than Rp 500 |
+| `/budget off`, `/budget turn off` | Remove a limit |
+| `... --default` | Keep that limit for new sessions too, in `budget.json` |
+
+At 80% of the session limit you get a warning. At 100% the agent stops, and your next message asks whether to raise the
+limit, send without one, or hold off (your text stays in the box). Subagents count, because the limit follows the
+same total as `/usage`. The limit can only count models that have a NusaGate price, and `/budget` says when some
+responses had none.
 
 ## How it works
 
@@ -206,6 +225,7 @@ Everything lives in `~/.nusacode/`, or wherever `NUSACODE_HOME` points:
 ~/.nusacode/
 ├── settings.json     your settings
 ├── models.json       provider definition
+├── budget.json       default spending limits, if you saved any (see Budget)
 ├── auth.json         API key, if you entered one during setup
 ├── AGENTS.md         global instructions, if imported
 ├── agents/           subagent definitions

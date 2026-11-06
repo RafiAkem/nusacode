@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import meter, { SUMMARY_CHANNEL, type SummaryRow } from "../extensions/meter.ts";
+import meter, { COST_CHANNEL, SUMMARY_CHANNEL, type CostEvent, type SummaryRow } from "../extensions/meter.ts";
 
 const DEFAULT_MODELS_URL = "https://api.nusagate.com/api/public/models";
 /** The wallet row, normalized like costLine so column padding does not matter. */
@@ -26,6 +26,7 @@ function harness() {
   const notifications: string[] = [];
   const statuses: string[] = [];
   const summaries: SummaryRow[][] = [];
+  const costEvents: CostEvent[] = [];
   const pi = {
     on(name: string, fn: Handler) {
       handlers[name] = fn;
@@ -37,6 +38,7 @@ function harness() {
       on: () => {},
       emit(channel: string, data: unknown) {
         if (channel === SUMMARY_CHANNEL) summaries.push((data as { rows: SummaryRow[] }).rows);
+        if (channel === COST_CHANNEL) costEvents.push(data as CostEvent);
       },
     },
     getSettings: () => ({}),
@@ -62,6 +64,7 @@ function harness() {
     notifications,
     statuses,
     summaries,
+    costEvents,
     start: () => handlers.session_start({}, ctx),
     respond: (model: string, usage: Usage) =>
       handlers.message_end(
@@ -410,5 +413,23 @@ test("/topup reports the balance next to the link", async (t) => {
   assert.equal(
     h.notifications.at(-1),
     "Balance: Rp 250.000\nTop up: https://nusagate.com/dashboard/wallet?src=cli&key=nsk_abcdefg",
+  );
+});
+
+test("every response is published with its own cost and the session total", async (t) => {
+  restoreFetch(t);
+  stubFetch(catalog(priceRow("m", { inputPer1M: 1000, outputPer1M: 2000, cachePricePercent: 10 })));
+  const h = harness();
+  await h.start();
+  h.respond("m", { input: 1_000_000, output: 0 });
+  h.respond("m", { input: 0, output: 500_000 });
+  h.respond("unpriced-model", { input: 10, output: 10 });
+  assert.deepEqual(
+    h.costEvents.map((e) => [e.model, e.costIdr, e.sessionIdr, e.unpriced, e.source]),
+    [
+      ["m", 1000, 1000, false, "main"],
+      ["m", 1000, 2000, false, "main"],
+      ["unpriced-model", 0, 2000, true, "main"],
+    ],
   );
 });
