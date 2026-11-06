@@ -118,6 +118,17 @@ limit, send without one, or hold off (your text stays in the box). Subagents cou
 same total as `/usage`. The limit can only count models that have a NusaGate price, and `/budget` says when some
 responses had none.
 
+### Before you send
+
+A message of about 5,000 tokens or more (roughly 20,000 characters, such as a pasted log) shows what it will cost to
+send: reading the message, plus re-reading the conversation so far from the cache. The reply isn't included, because
+its length isn't known until the model has written it. If that estimate is Rp 500 or more, NusaCode asks before sending,
+and your text stays in the box if you say no. Change the amount with `NUSACODE_CONFIRM_ABOVE` (for example `2k`), or set
+it to `off` to be told but never asked.
+
+When the agent starts several subagents at once, you're told what that will probably cost, from what the subagents
+before them cost in the same session.
+
 ## How it works
 
 <details>
@@ -277,6 +288,7 @@ default, so without a NusaGate key, set your own `model` in the agents in `~/.nu
 | `NUSACODE_NO_LEARN=1` | Turn off automatic learning |
 | `NUSACODE_LEARN_MODEL` | Model for learning reviews, as `provider/model` |
 | `NUSACODE_NO_TOKEN_SAVER=1` | Turn off all token saving |
+| `NUSACODE_CONFIRM_ABOVE` | Ask before sending a message estimated to cost this much or more, such as `2k`; default `500`, `off` never asks |
 | `NUSACODE_TRUNCATE_LINES` | Tool output line limit; `0` turns off truncation |
 | `NUSACODE_SUBAGENT_TIMEOUT_MS` | Per-subagent timeout (default `600000`) |
 | `NUSAGATE_MODELS_URL` | Override the catalog URL |

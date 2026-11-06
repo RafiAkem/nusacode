@@ -57,7 +57,7 @@ const USD_IDR = 18_000;
 
 type Json = Record<string, unknown>;
 
-type Price = {
+export type Price = {
   inputPer1M: number;
   outputPer1M: number;
   /** Cache-hit price as a percentage of the input price (10 = DeepSeek style). */
@@ -150,7 +150,7 @@ function bar(part: number, whole: number, width = 16): string {
   return "█".repeat(filled) + "░".repeat(width - filled);
 }
 
-function parsePrice(row: unknown): Price | null {
+export function parsePrice(row: unknown): Price | null {
   const entry = asRecord(row);
   const pricing = entry ? asRecord(entry.pricing) : null;
   if (!pricing) return null;

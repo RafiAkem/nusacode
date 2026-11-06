@@ -37,6 +37,7 @@ pack/extensions/                 every file here is loaded as a pi extension
   meter.ts                       rupiah cost meter, /usage, /topup
   budget.ts                      /budget spending limits
   history.ts                     saves spending to usage.jsonl, for /usage history
+  estimate.ts                    cost notice before a large message or a subagent fan-out
   models.ts                      /model list from NusaGate's catalog
   setup.ts                       first-time setup, /setup, /import-config
   learn.ts                       automatic skills, /skills
