@@ -2,7 +2,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import meter, { SUMMARY_CHANNEL, type SummaryRow } from "../extensions/meter.ts";
+import meter, { COST_CHANNEL, SUMMARY_CHANNEL, type CostEvent, type SummaryRow } from "../extensions/meter.ts";
+import { LOG_FILE, appendRecord } from "../lib/usage-log.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// The report reads the saved spending history, so these tests need a home of their own.
+const home = mkdtempSync(join(tmpdir(), "nusacode-meter-"));
+process.env.NUSACODE_CODING_AGENT_DIR = home;
+test.after(() => rmSync(home, { recursive: true, force: true }));
 
 const DEFAULT_MODELS_URL = "https://api.nusagate.com/api/public/models";
 /** The wallet row, normalized like costLine so column padding does not matter. */
@@ -26,6 +35,7 @@ function harness() {
   const notifications: string[] = [];
   const statuses: string[] = [];
   const summaries: SummaryRow[][] = [];
+  const costEvents: CostEvent[] = [];
   const pi = {
     on(name: string, fn: Handler) {
       handlers[name] = fn;
@@ -37,6 +47,7 @@ function harness() {
       on: () => {},
       emit(channel: string, data: unknown) {
         if (channel === SUMMARY_CHANNEL) summaries.push((data as { rows: SummaryRow[] }).rows);
+        if (channel === COST_CHANNEL) costEvents.push(data as CostEvent);
       },
     },
     getSettings: () => ({}),
@@ -62,6 +73,7 @@ function harness() {
     notifications,
     statuses,
     summaries,
+    costEvents,
     start: () => handlers.session_start({}, ctx),
     respond: (model: string, usage: Usage) =>
       handlers.message_end(
@@ -71,6 +83,11 @@ function harness() {
     /** The /usage command is the only report surface. */
     report: async () => {
       await commands.usage("", ctx);
+      return notifications.at(-1) as string;
+    },
+    /** /usage with arguments, such as `history week`. */
+    usage: async (args: string) => {
+      await commands.usage(args, ctx);
       return notifications.at(-1) as string;
     },
     topup: async () => {
@@ -411,4 +428,46 @@ test("/topup reports the balance next to the link", async (t) => {
     h.notifications.at(-1),
     "Balance: Rp 250.000\nTop up: https://nusagate.com/dashboard/wallet?src=cli&key=nsk_abcdefg",
   );
+});
+
+test("every response is published with its own cost and the session total", async (t) => {
+  restoreFetch(t);
+  stubFetch(catalog(priceRow("m", { inputPer1M: 1000, outputPer1M: 2000, cachePricePercent: 10 })));
+  const h = harness();
+  await h.start();
+  h.respond("m", { input: 1_000_000, output: 0 });
+  h.respond("m", { input: 0, output: 500_000 });
+  h.respond("unpriced-model", { input: 10, output: 10 });
+  assert.deepEqual(
+    h.costEvents.map((e) => [e.model, e.costIdr, e.sessionIdr, e.unpriced, e.source]),
+    [
+      ["m", 1000, 1000, false, "main"],
+      ["m", 1000, 2000, false, "main"],
+      ["unpriced-model", 0, 2000, true, "main"],
+    ],
+  );
+});
+
+test("/usage adds today and this month from the saved history, and /usage history breaks it down", async (t) => {
+  restoreFetch(t);
+  stubFetch(catalog(priceRow("m", { inputPer1M: 1000, outputPer1M: 2000, cachePricePercent: 10 })));
+  const h = harness();
+  await h.start();
+  assert.equal((await h.report()).includes("Today"), false, "no history yet, no rows");
+
+  const now = new Date();
+  const record = (model: string, cost: number) => ({ t: now.toISOString(), model, cost, fresh: 100, cached: 100, output: 10 });
+  appendRecord(home, record("nusagate/m", 700));
+  appendRecord(home, record("nusagate/other", 300));
+  const report = await h.report();
+  assert.ok(report.includes("Today         Rp 1.000 · 2 requests"), report);
+  assert.ok(report.includes("This month    Rp 1.000 · 2 requests"), report);
+  assert.ok(report.includes("More: /usage history"));
+
+  const history = await h.usage("history");
+  assert.ok(history.includes("usage history"));
+  assert.ok(history.includes("nusagate/m  "));
+  assert.ok((await h.usage("history week")).includes("By model, the last 7 days"));
+  assert.ok((await h.usage("history decade")).includes("Usage: /usage history"));
+  rmSync(join(home, LOG_FILE));
 });

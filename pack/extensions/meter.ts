@@ -12,6 +12,9 @@
  * key. No price is hardcoded here.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { agentDir } from "../lib/home.ts";
+import { idr } from "../lib/money.ts";
+import { historyReport, parsePeriod, periodRows, readLog } from "../lib/usage-log.ts";
 
 const MODELS_URL = "https://api.nusagate.com/api/public/models";
 export const BALANCE_URL = "https://api.nusagate.com/v1/balance";
@@ -26,6 +29,25 @@ const USAGE_CHANNEL = "nusacode:usage";
 export const SUMMARY_CHANNEL = "nusacode:usage-summary";
 /** Raw catalog rows, for the model list in models.ts. */
 export const CATALOG_CHANNEL = "nusacode:catalog";
+/** One event per response, so budget.ts and others can follow spending without pricing anything. */
+export const COST_CHANNEL = "nusacode:cost";
+
+/** What the meter publishes on COST_CHANNEL after it accounts for one response. */
+export type CostEvent = {
+  provider: string;
+  model: string;
+  /** The response's own cost, in whole rupiah; 0 when the model had no price. */
+  costIdr: number;
+  /** The session's cost so far, subagents included. */
+  sessionIdr: number;
+  /** True when the model had no price, so the cost is a minimum rather than the cost. */
+  unpriced: boolean;
+  /** Prompt tokens at the full input price, tokens read from cache, and tokens written. */
+  freshInput: number;
+  cacheRead: number;
+  output: number;
+  source: "main" | "subagent";
+};
 const FETCH_TIMEOUT_MS = 5_000;
 /** Below this the report carries the topup link. */
 const LOW_BALANCE_IDR = 5_000;
@@ -35,7 +57,7 @@ const USD_IDR = 18_000;
 
 type Json = Record<string, unknown>;
 
-type Price = {
+export type Price = {
   inputPer1M: number;
   outputPer1M: number;
   /** Cache-hit price as a percentage of the input price (10 = DeepSeek style). */
@@ -101,10 +123,6 @@ function totalTokens(t: Totals): number {
   return t.freshInput + t.cacheRead + t.output;
 }
 
-function idr(n: number): string {
-  return `Rp ${Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
-}
-
 function tokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
@@ -132,7 +150,7 @@ function bar(part: number, whole: number, width = 16): string {
   return "█".repeat(filled) + "░".repeat(width - filled);
 }
 
-function parsePrice(row: unknown): Price | null {
+export function parsePrice(row: unknown): Price | null {
   const entry = asRecord(row);
   const pricing = entry ? asRecord(entry.pricing) : null;
   if (!pricing) return null;
@@ -320,6 +338,12 @@ export default function meter(pi: ExtensionAPI) {
     publishSummary(ctx.model?.provider, ctx.model?.id);
   }
 
+  /** Today and this month across all sessions, from the saved history. */
+  function historyRows(): string[] {
+    const rows = periodRows(readLog(agentDir()), new Date());
+    return rows.length === 0 ? [] : [...rows.map(([label, value]) => row(label, value)), "More: /usage history"];
+  }
+
   function unavailableLine(): string {
     return `Cost unavailable (price fetch failed: ${priceError ?? "unknown"})`;
   }
@@ -332,6 +356,7 @@ export default function meter(pi: ExtensionAPI) {
     if (totals.requests === 0) {
       lines.push("No usage in this session yet.");
       lines.push(prices ? `Prices: ${priceSource} (fetched once at session start)` : unavailableLine());
+      lines.push(...historyRows());
       lines.push(...balanceRows());
       return lines.join("\n");
     }
@@ -368,6 +393,7 @@ export default function meter(pi: ExtensionAPI) {
     } else {
       lines.push(unavailableLine());
     }
+    lines.push(...historyRows());
     lines.push(...balanceRows());
     return lines.join("\n");
   }
@@ -418,8 +444,25 @@ export default function meter(pi: ExtensionAPI) {
     speedMs += elapsedMs;
   }
 
-  /** Folds one provider response into the session totals. */
-  function account(provider: string, model: string, usage: UsageCounts): void {
+  /** Folds one provider response into the session totals, and publishes it. */
+  function account(provider: string, model: string, usage: UsageCounts, source: CostEvent["source"]): void {
+    const before = totals.costIdr;
+    const priced = fold(provider, model, usage);
+    pi.events.emit(COST_CHANNEL, {
+      provider,
+      model,
+      costIdr: totals.costIdr - before,
+      sessionIdr: totals.costIdr,
+      unpriced: !priced,
+      freshInput: usage.input + usage.cacheWrite,
+      cacheRead: usage.cacheRead,
+      output: usage.output,
+      source,
+    } satisfies CostEvent);
+  }
+
+  /** Adds one response to the totals; false when its model has no price. */
+  function fold(provider: string, model: string, usage: UsageCounts): boolean {
     const fresh = usage.input + usage.cacheWrite;
     const cached = usage.cacheRead;
     totals.requests += 1;
@@ -430,7 +473,7 @@ export default function meter(pi: ExtensionAPI) {
     const price = provider === PROVIDER ? prices?.get(model) : undefined;
     if (!price) {
       totals.unpriced += 1;
-      return;
+      return false;
     }
     totals.costIdr += billIdr(price, fresh, cached, usage.output);
     // Cached tokens are left out on both sides: the catalog has no official cache
@@ -440,6 +483,7 @@ export default function meter(pi: ExtensionAPI) {
       totals.officialIdr += perMillion(price.officialInputPer1M, price.officialOutputPer1M);
       totals.comparableIdr += perMillion(price.inputPer1M, price.outputPer1M);
     }
+    return true;
   }
 
   // Token usage per provider response. `after_provider_response` carries only
@@ -449,7 +493,7 @@ export default function meter(pi: ExtensionAPI) {
     lastCtx = ctx;
     const message = event.message;
     if (message.role !== "assistant" || !message.usage) return;
-    account(message.provider, message.model, message.usage);
+    account(message.provider, message.model, message.usage, "main");
     if (firstChunkAt !== null) recordSpeed(message.usage.output, Date.now() - firstChunkAt);
     firstChunkAt = null;
     refreshStatus(ctx);
@@ -473,7 +517,7 @@ export default function meter(pi: ExtensionAPI) {
       cacheWrite: readNumber(usage, "cacheWrite") ?? 0,
       output: readNumber(usage, "output") ?? 0,
     };
-    account(String(event.provider), String(event.model), counts);
+    account(String(event.provider), String(event.model), counts, "subagent");
     totals.subagentRequests += 1;
     totals.subagentTokens += counts.input + counts.cacheRead + counts.cacheWrite + counts.output;
     if (lastCtx) refreshStatus(lastCtx);
@@ -499,8 +543,18 @@ export default function meter(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("usage", {
-    description: "Show the session cost meter (rupiah, tokens, savings)",
-    handler: async (_args, ctx) => {
+    description: "Show the session cost meter (rupiah, tokens, savings). `/usage history` shows spending over time",
+    handler: async (args, ctx) => {
+      const [first, ...rest] = args.trim().split(/\s+/);
+      if (first?.toLowerCase() === "history") {
+        const period = parsePeriod(rest.join(" "));
+        if (period === null) {
+          ctx.ui.notify("Usage: /usage history [today|week|month|all]", "warning");
+          return;
+        }
+        ctx.ui.notify(historyReport(readLog(agentDir()), period, new Date()), "info");
+        return;
+      }
       // Refetch the wallet so the report reflects charges made since startup.
       await refreshBalance(apiKey);
       ctx.ui.notify(report(), "info");

@@ -55,6 +55,7 @@ what that cost. The session and its costs are real; only the balance is sample d
 |  |  |
 | --- | --- |
 | **Real costs in rupiah** | Each response is priced with the gateway's own billing formula, using live prices. Your balance, cost, cache hit rate and speed stay in view. |
+| **Spending limits** | `/budget 5000` stops the agent at Rp 5.000 for the session, with a warning at 80%. `/budget turn 500` warns when one prompt gets expensive. |
 | **Every NusaGate model** | `/model` lists the live catalog: DeepSeek, GPT, Gemini, GLM, Grok, Kimi, MiniMax, Qwen and more. |
 | **Learns as you work** | After substantial tasks, a background review can save what it learned as a reusable skill. |
 | **Brings your setup with it** | Import skills and global instructions from Claude Code, Codex, oh-my-pi, pi and OpenCode. |
@@ -67,8 +68,10 @@ what that cost. The session and its costs are real; only the balance is sample d
 
 | Command | What it does |
 | --- | --- |
-| `/usage` | Show session cost, tokens, cache hit rate, speed and balance |
+| `/usage` | Show session cost, tokens, cache hit rate, speed and balance, plus today's and this month's spending |
+| `/usage history` | Spending per day and per model, to see which model is cheapest for your work. Add `today`, `week`, `month` or `all` |
 | `/topup` | Show your balance and a top-up link |
+| `/budget` | Set a spending limit for the session, or a warning for a single prompt. See [Budget](#budget) |
 | `/model` | Switch model |
 | `/thinking` | Pick how hard the model thinks, or `/thinking high`. `shift+tab` cycles the levels. Only DeepSeek models support it |
 | `/skills` | List learned skills; `/skills delete <name>` removes one |
@@ -89,6 +92,42 @@ Start a message with `!` to run a shell command, or `!!` to run it without sendi
 | `ctrl+l` | Switch model |
 | `escape` | Interrupt the agent |
 | `ctrl+d` | Exit |
+
+## Spending history
+
+Every response is recorded in `usage.jsonl` in the NusaCode home, so `/usage` can show today's and this month's
+spending across sessions, and `/usage history` can compare models by total cost, cost per request and cache hit rate.
+Only the time, the model name, token counts and the cost are saved, never your messages. Costs stay as they were
+charged, so a later price change doesn't rewrite them. Once the file passes 1 MB, everything before today is folded into
+one line per day and model, which keeps every total and keeps the file small. Delete the file to start over.
+
+## Budget
+
+`/budget` keeps cost from running away, in rupiah:
+
+| Command | What it does |
+| --- | --- |
+| `/budget` | Show what is spent and what is left |
+| `/budget 5000` | Limit this session to Rp 5.000. Also `5.000`, `Rp 5.000`, `5k` or `1.5m` |
+| `/budget turn 500` | Warn once when a single prompt costs more than Rp 500 |
+| `/budget off`, `/budget turn off` | Remove a limit |
+| `... --default` | Keep that limit for new sessions too, in `budget.json` |
+
+At 80% of the session limit you get a warning. At 100% the agent stops, and your next message asks whether to raise the
+limit, send without one, or hold off (your text stays in the box). Subagents count, because the limit follows the
+same total as `/usage`. The limit can only count responses that have a NusaGate price. If one doesn't (the prices didn't
+load, or the model isn't in NusaGate's catalog), you're warned the first time, since the limit can't protect you there.
+
+### Before you send
+
+A message of about 5,000 tokens or more (roughly 20,000 characters, such as a pasted log) shows what it will cost to
+send: reading the message, plus re-reading the conversation so far from the cache. The reply isn't included, because
+its length isn't known until the model has written it. If that estimate is Rp 500 or more, NusaCode asks before sending,
+and your text stays in the box if you say no. Change the amount with `NUSACODE_CONFIRM_ABOVE` (for example `2k`), or set
+it to `off` to be told but never asked.
+
+When the agent starts several subagents at once, you're told what that will probably cost, from what the subagents
+before them cost in the same session.
 
 ## How it works
 
@@ -221,6 +260,8 @@ Everything lives in `~/.nusacode/`, or wherever `NUSACODE_HOME` points:
 ├── settings.json     your settings
 ├── models.json       provider definition
 ├── model-capabilities.json  what each model can do, if you add it (see Models)
+├── budget.json       default spending limits, if you saved any (see Budget)
+├── usage.jsonl       spending history: one line per response, with the model, tokens and cost
 ├── auth.json         API key, if you entered one during setup
 ├── AGENTS.md         global instructions, if imported
 ├── agents/           subagent definitions
@@ -262,6 +303,7 @@ default, so without a NusaGate key, set your own `model` in the agents in `~/.nu
 | `NUSACODE_NO_LEARN=1` | Turn off automatic learning |
 | `NUSACODE_LEARN_MODEL` | Model for learning reviews, as `provider/model` |
 | `NUSACODE_NO_TOKEN_SAVER=1` | Turn off all token saving |
+| `NUSACODE_CONFIRM_ABOVE` | Ask before sending a message estimated to cost this much or more, such as `2k`; default `500`, `off` never asks |
 | `NUSACODE_TRUNCATE_LINES` | Tool output line limit; `0` turns off truncation |
 | `NUSACODE_SUBAGENT_TIMEOUT_MS` | Per-subagent timeout (default `600000`) |
 | `NUSAGATE_MODELS_URL` | Override the catalog URL |
