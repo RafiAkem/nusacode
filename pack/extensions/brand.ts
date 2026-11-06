@@ -17,6 +17,78 @@ import { foregroundAnsi, mixColors, parseColor, truncateToWidth, visibleWidth } 
 import type { ContextUsage, ExtensionAPI, ExtensionContext, SessionInfo, Theme } from "@earendil-works/pi-coding-agent";
 import { keyText, SessionManager } from "@earendil-works/pi-coding-agent";
 import { SUMMARY_CHANNEL, type SummaryRow } from "./meter.ts";
+import { messages } from "../lib/i18n.ts";
+
+const t = messages(
+  {
+    greeting: "Welcome!",
+    tips: "Tips",
+    usage: "Usage",
+    loading: "loading...",
+    recentSessions: "Recent sessions",
+    noRecentSessions: "No recent sessions",
+    tipLabel: "Tip: ",
+    tipUsage: "/usage shows session cost, tokens and balance.",
+    tipTopup: "/topup shows your balance and a NusaGate top-up link.",
+    tipResume: "/resume continues an earlier session.",
+    tipTask: "Ask the agent to use the task tool to hand work to a subagent.",
+    tipBang: "Start with !! to run bash without sending the output to the model.",
+    justNow: "just now",
+    minutesAgo: "{n}m ago",
+    hoursAgo: "{n}h ago",
+    daysAgo: "{n}d ago",
+    untitled: "Untitled",
+    noModel: "No model",
+    reasoningLabel: "▸ reasoning ({key} to expand)",
+    keyCommands: "for commands · ! for bash",
+    keyModel: "to switch model",
+    keyExpand: "show thinking · tool output",
+    keyInterrupt: "to interrupt · exit",
+    toolRead: "Reading",
+    toolWrite: "Writing",
+    toolEdit: "Editing",
+    toolRun: "Running",
+    toolSearch: "Searching for",
+    toolFind: "Finding",
+    toolList: "Listing",
+    toolTask: "Delegating",
+    toolOther: "Using {name}",
+  },
+  {
+    greeting: "Selamat datang!",
+    tips: "Tips",
+    usage: "Pemakaian",
+    loading: "memuat...",
+    recentSessions: "Sesi terakhir",
+    noRecentSessions: "Belum ada sesi",
+    tipLabel: "Tips: ",
+    tipUsage: "/usage menampilkan biaya sesi, token, dan saldo.",
+    tipTopup: "/topup menampilkan saldo kamu dan link top up NusaGate.",
+    tipResume: "/resume melanjutkan sesi sebelumnya.",
+    tipTask: "Minta agent memakai tool task untuk menyerahkan pekerjaan ke subagent.",
+    tipBang: "Awali dengan !! untuk menjalankan bash tanpa mengirim output ke model.",
+    justNow: "baru saja",
+    minutesAgo: "{n} mnt lalu",
+    hoursAgo: "{n} jam lalu",
+    daysAgo: "{n} hari lalu",
+    untitled: "Tanpa judul",
+    noModel: "Belum ada model",
+    reasoningLabel: "▸ penalaran ({key} untuk membuka)",
+    keyCommands: "untuk command · ! untuk bash",
+    keyModel: "untuk ganti model",
+    keyExpand: "lihat penalaran · output tool",
+    keyInterrupt: "untuk hentikan · keluar",
+    toolRead: "Membaca",
+    toolWrite: "Menulis",
+    toolEdit: "Mengedit",
+    toolRun: "Menjalankan",
+    toolSearch: "Mencari",
+    toolFind: "Mencari file",
+    toolList: "Melihat isi",
+    toolTask: "Mendelegasikan",
+    toolOther: "Memakai {name}",
+  },
+);
 
 type ColorMode = ReturnType<Theme["getColorMode"]>;
 
@@ -83,18 +155,14 @@ const MIN_RIGHT_COLUMN = 20;
 /** Fixed row counts, so async data arriving never changes the box height. */
 const USAGE_SLOTS = 4;
 const SESSION_SLOTS = 4;
-const GREETING = "Welcome!";
 /** Document row of the logo's first line: pi's spacer, top border, greeting and blanks. */
 const LOGO_TOP_ROW = 5;
 const MAX_ACTIVITY_WIDTH = 60;
 
-const TIPS = [
-  "/usage shows session cost, tokens and balance.",
-  "/topup shows your balance and a NusaGate top-up link.",
-  "/resume continues an earlier session.",
-  "Ask the agent to use the task tool to hand work to a subagent.",
-  "Start with !! to run bash without sending the output to the model.",
-];
+/** A function, not a constant, so the tips follow the language in use. */
+function tips(): string[] {
+  return [t("tipUsage"), t("tipTopup"), t("tipResume"), t("tipTask"), t("tipBang")];
+}
 
 function readVersion(): string {
   const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
@@ -144,17 +212,17 @@ export function logoFrame(mode: ColorMode, phase: number | null = null): string[
 
 export function timeAgo(then: Date, now: Date): string {
   const minutes = Math.floor((now.getTime() - then.getTime()) / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return t("justNow");
+  if (minutes < 60) return t("minutesAgo", { n: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return t("hoursAgo", { n: hours });
+  return t("daysAgo", { n: Math.floor(hours / 24) });
 }
 
 /** One line for a session: its name, else its first prompt. */
 export function sessionLabel(session: Pick<SessionInfo, "name" | "firstMessage" | "messageCount">): string {
   if (session.name) return session.name;
-  return session.messageCount > 0 ? session.firstMessage.replace(/\s+/g, " ").trim() : "Untitled";
+  return session.messageCount > 0 ? session.firstMessage.replace(/\s+/g, " ").trim() : t("untitled");
 }
 
 export type WelcomeView = {
@@ -178,10 +246,10 @@ function rightColumn(view: WelcomeView, width: number, theme: Theme): string[] {
   const separator = ` ${theme.fg("dim", "─".repeat(Math.max(0, width - 2)))}`;
   const slots = (lines: string[], count: number) => [...lines, ...Array<string>(count).fill("")].slice(0, count);
 
-  const labelWidth = Math.max(0, ...view.usage.map((row) => row.label.length)) + 2;
+  const labelWidth = Math.max(0, ...view.usage.map((row) => visibleWidth(row.label))) + 2;
+  const padLabel = (label: string) => label + " ".repeat(Math.max(0, labelWidth - visibleWidth(label)));
   const usage = view.usage.map(
-    (row) =>
-      ` ${theme.fg("dim", row.label.padEnd(labelWidth))}${theme.fg(row.warn ? "warning" : "muted", row.value)}`,
+    (row) => ` ${theme.fg("dim", padLabel(row.label))}${theme.fg(row.warn ? "warning" : "muted", row.value)}`,
   );
 
   const sessions = view.sessions.map((session) => {
@@ -191,14 +259,14 @@ function rightColumn(view: WelcomeView, width: number, theme: Theme): string[] {
   });
 
   return [
-    heading("Tips"),
+    heading(t("tips")),
     ...view.tips.map(([key, text]) => ` ${theme.fg("dim", key)}${theme.fg("muted", ` ${text}`)}`),
     separator,
-    heading("Usage"),
-    ...slots(usage.length > 0 ? usage : [` ${theme.fg("dim", "loading...")}`], USAGE_SLOTS),
+    heading(t("usage")),
+    ...slots(usage.length > 0 ? usage : [` ${theme.fg("dim", t("loading"))}`], USAGE_SLOTS),
     separator,
-    heading("Recent sessions"),
-    ...slots(sessions.length > 0 ? sessions : [` ${theme.fg("dim", "No recent sessions")}`], SESSION_SLOTS),
+    heading(t("recentSessions")),
+    ...slots(sessions.length > 0 ? sessions : [` ${theme.fg("dim", t("noRecentSessions"))}`], SESSION_SLOTS),
   ];
 }
 
@@ -214,7 +282,7 @@ export function welcomeLines(view: WelcomeView, termWidth: number, theme: Theme,
 
   const left = [
     "",
-    center(theme.bold(GREETING), leftWidth),
+    center(theme.bold(fit(t("greeting"), leftWidth).trimEnd()), leftWidth),
     "",
     ...logo.map((line) => center(line, leftWidth)),
     "",
@@ -237,7 +305,7 @@ export function welcomeLines(view: WelcomeView, termWidth: number, theme: Theme,
   );
 
   if (view.tip) {
-    const label = theme.fg("customMessageLabel", "Tip: ");
+    const label = theme.fg("customMessageLabel", t("tipLabel"));
     lines.push(truncateToWidth(` ${theme.italic(label + theme.fg("muted", view.tip))}`, boxWidth, "…"));
   }
   return lines;
@@ -368,7 +436,7 @@ export function statusBarLines(view: StatusBarView, width: number, theme: Theme)
 
 /** pi uses a placeholder model named "unknown" when no provider has a key. */
 export function modelLabel(model: { id: string; name?: string } | undefined): string {
-  return !model || model.id === "unknown" ? "No model" : (model.name ?? model.id);
+  return !model || model.id === "unknown" ? t("noModel") : (model.name ?? model.id);
 }
 
 function mountStatusBar(pi: ExtensionAPI, ctx: ExtensionContext): void {
@@ -409,26 +477,27 @@ export function describeTool(name: string, args: unknown): string {
   const full = text("path") || text("command") || text("pattern") || text("prompt");
   const target = full.length > MAX_ACTIVITY_WIDTH ? `${full.slice(0, MAX_ACTIVITY_WIDTH)}…` : full;
   const verbs: Record<string, string> = {
-    read: "Reading",
-    write: "Writing",
-    edit: "Editing",
-    bash: "Running",
-    powershell: "Running",
-    grep: "Searching for",
-    find: "Finding",
-    ls: "Listing",
-    task: "Delegating",
+    read: t("toolRead"),
+    write: t("toolWrite"),
+    edit: t("toolEdit"),
+    bash: t("toolRun"),
+    powershell: t("toolRun"),
+    grep: t("toolSearch"),
+    find: t("toolFind"),
+    ls: t("toolList"),
+    task: t("toolTask"),
   };
-  const verb = verbs[name.toLowerCase()] ?? `Using ${name}`;
+  // A verb followed by its object reads the same way round in both languages.
+  const verb = verbs[name.toLowerCase()] ?? t("toolOther", { name });
   return target ? `${verb} ${target}` : verb;
 }
 
 function keyTips(): [string, string][] {
   return [
-    ["/", "for commands · ! for bash"],
-    [keyText("app.model.select"), "to switch model"],
-    [`${keyText("app.thinking.toggle")} · ${keyText("app.tools.expand")}`, "show thinking · tool output"],
-    [`${keyText("app.interrupt")} · ${keyText("app.exit")}`, "to interrupt · exit"],
+    ["/", t("keyCommands")],
+    [keyText("app.model.select"), t("keyModel")],
+    [`${keyText("app.thinking.toggle")} · ${keyText("app.tools.expand")}`, t("keyExpand")],
+    [`${keyText("app.interrupt")} · ${keyText("app.exit")}`, t("keyInterrupt")],
   ];
 }
 
@@ -455,7 +524,7 @@ export default function brand(pi: ExtensionAPI) {
   pi.on("session_start", (event, ctx) => {
     if (ctx.mode !== "tui") return;
     mountStatusBar(pi, ctx);
-    ctx.ui.setHiddenThinkingLabel(`▸ reasoning (${keyText("app.thinking.toggle")} to expand)`);
+    ctx.ui.setHiddenThinkingLabel(t("reasoningLabel", { key: keyText("app.thinking.toggle") }));
     const view: WelcomeView = {
       version: readVersion(),
       model: modelLabel(ctx.model),
@@ -463,7 +532,10 @@ export default function brand(pi: ExtensionAPI) {
       tips: keyTips(),
       usage,
       sessions: [],
-      tip: TIPS[Math.floor(Math.random() * TIPS.length)],
+      tip: (() => {
+        const all = tips();
+        return all[Math.floor(Math.random() * all.length)];
+      })(),
     };
     const fresh = !ctx.sessionManager.getEntries().some((entry) => entry.type === "message");
     let mounted: WelcomeHeader | null = null;

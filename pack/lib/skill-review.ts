@@ -5,6 +5,34 @@
  * keeps saying it. These helpers show a person what changed and what looks risky. They are aids
  * for reading, not a guarantee: the decision is theirs.
  */
+import { messages } from "./i18n.ts";
+
+const t = messages(
+  {
+    noChange: "(no change)",
+    webAddress: "contains a web address",
+    pipesToShell: "pipes a download into a shell",
+    elevated: "asks for elevated rights",
+    deletesRecursively: "deletes files recursively",
+    runtimeCode: "runs code built at run time",
+    overrides: "tries to override instructions or hide things from you",
+    credentials: "mentions credentials or secret files",
+    encoded: "contains encoded text",
+    rewritesGit: "force-pushes or hard-resets git history",
+  },
+  {
+    noChange: "(tidak ada perubahan)",
+    webAddress: "berisi alamat web",
+    pipesToShell: "menyalurkan hasil unduhan langsung ke shell",
+    elevated: "meminta hak akses admin",
+    deletesRecursively: "menghapus file secara rekursif",
+    runtimeCode: "menjalankan kode yang dirakit saat berjalan",
+    overrides: "mencoba mengabaikan instruksi atau menyembunyikan sesuatu dari kamu",
+    credentials: "menyebut kredensial atau file rahasia",
+    encoded: "berisi teks yang di-encode",
+    rewritesGit: "melakukan force-push atau hard-reset pada riwayat git",
+  },
+);
 
 type Op = { kind: " " | "+" | "-"; text: string };
 
@@ -64,25 +92,26 @@ export function lineDiff(before: string, after: string): string[] {
     skipped = false;
     lines.push(`${op.kind} ${op.text}`);
   });
-  return lines.length > 0 ? lines : ["  (no change)"];
+  return lines.length > 0 ? lines : [`  ${t("noChange")}`];
 }
 
-const RISKS: [RegExp, string][] = [
-  [/https?:\/\/\S+/i, "contains a web address"],
-  [/\b(?:curl|wget|iwr|invoke-webrequest)\b[^\n|]*\|\s*(?:sh|bash|zsh|iex|invoke-expression)\b/i, "pipes a download into a shell"],
-  [/\b(?:sudo|runas)\b/i, "asks for elevated rights"],
-  [/\brm\s+-[a-z]*r[a-z]*f|\brm\s+-[a-z]*f[a-z]*r|\bremove-item\b[^\n]*-recurse|\bformat\s+[a-z]:/i, "deletes files recursively"],
-  [/\b(?:eval|invoke-expression|iex)\b/i, "runs code built at run time"],
+/** Each pattern with the key of its note, so the note is drawn in the language in use. */
+const RISKS: [RegExp, Parameters<typeof t>[0]][] = [
+  [/https?:\/\/\S+/i, "webAddress"],
+  [/\b(?:curl|wget|iwr|invoke-webrequest)\b[^\n|]*\|\s*(?:sh|bash|zsh|iex|invoke-expression)\b/i, "pipesToShell"],
+  [/\b(?:sudo|runas)\b/i, "elevated"],
+  [/\brm\s+-[a-z]*r[a-z]*f|\brm\s+-[a-z]*f[a-z]*r|\bremove-item\b[^\n]*-recurse|\bformat\s+[a-z]:/i, "deletesRecursively"],
+  [/\b(?:eval|invoke-expression|iex)\b/i, "runtimeCode"],
   [
     /ignore (?:all |any |the )?(?:previous|prior|above|earlier) (?:instructions|rules)|disregard (?:the )?(?:system|previous)|(?:do not|don't) (?:tell|inform|mention)[^.\n]*(?:user|human)|without (?:telling|asking) the user/i,
-    "tries to override instructions or hide things from you",
+    "overrides",
   ],
-  [/\b(?:password|passwd|api[_ -]?key|token|secret|credential)s?\b|\.ssh\b|id_rsa|\.env\b/i, "mentions credentials or secret files"],
-  [/\bbase64\b|(?:\\x[0-9a-f]{2}){3,}|(?:%[0-9a-f]{2}){4,}/i, "contains encoded text"],
-  [/\bgit\s+push\b[^\n]*(?:--force|-f\b)|\bgit\s+reset\s+--hard/i, "force-pushes or hard-resets git history"],
+  [/\b(?:password|passwd|api[_ -]?key|token|secret|credential)s?\b|\.ssh\b|id_rsa|\.env\b/i, "credentials"],
+  [/\bbase64\b|(?:\\x[0-9a-f]{2}){3,}|(?:%[0-9a-f]{2}){4,}/i, "encoded"],
+  [/\bgit\s+push\b[^\n]*(?:--force|-f\b)|\bgit\s+reset\s+--hard/i, "rewritesGit"],
 ];
 
 /** Things in a skill worth a closer look, in plain words. Empty does not mean safe. */
 export function riskNotes(text: string): string[] {
-  return RISKS.filter(([pattern]) => pattern.test(text)).map(([, note]) => note);
+  return RISKS.filter(([pattern]) => pattern.test(text)).map(([, note]) => t(note));
 }

@@ -12,7 +12,7 @@ import {
 } from "../lib/model-capabilities.ts";
 
 test("a model with no entry gets the defaults", () => {
-  assert.deepEqual(resolveCapabilities("kimi-k3", 1_000_000), {
+  assert.deepEqual(resolveCapabilities("some-new-model", 1_000_000), {
     vision: false,
     maxOutput: DEFAULT_MAX_OUTPUT,
     contextWindow: 1_000_000,
@@ -68,4 +68,20 @@ test("the file is read from the home, and a missing or broken one means no overr
   assert.deepEqual(readCapabilities(dir), {});
   writeFileSync(join(dir, CAPABILITIES_FILE), JSON.stringify({ "gpt-6-sol": { vision: true, maxOutput: 32768 }, bad: 7 }));
   assert.deepEqual(readCapabilities(dir), { "gpt-6-sol": { vision: true, maxOutput: 32768 }, bad: {} });
+});
+
+test("the models that passed the gateway image check are marked as vision models", () => {
+  for (const id of ["deepseek-v4.1-flash", "gemini-3.8-flash", "gpt-5.6-luna", "gpt-6-sol", "grok-4.7", "kimi-k3", "minimax-m3", "qwen3.8-max-0902"]) {
+    assert.equal(resolveCapabilities(id, 1_000_000).vision, true, id);
+  }
+  // The gateway answers these with a 400, "does not accept images".
+  for (const id of ["deepseek-v4-pro", "glm-5.3", "qwen3.8-27b", "qwen3.8-max"]) {
+    assert.equal(resolveCapabilities(id, 1_000_000).vision, false, id);
+  }
+});
+
+test("a vision flag from the catalog beats the built-in table, and the user's file beats both", () => {
+  assert.equal(resolveCapabilities("qwen3.8-max", 1000, {}, true).vision, true);
+  assert.equal(resolveCapabilities("kimi-k3", 1000, {}, false).vision, false);
+  assert.equal(resolveCapabilities("kimi-k3", 1000, { "kimi-k3": { vision: true } }, false).vision, true);
 });

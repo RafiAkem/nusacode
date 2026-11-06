@@ -118,3 +118,20 @@ test("the user's capabilities file sets vision and output limits, and /model mar
   assert.deepEqual(byId["glm-5.3"].input, ["text"]);
   assert.equal(byId["glm-5.3"].maxTokens, 16_384);
 });
+
+test("a vision flag in the catalog is read, whatever shape it comes in", () => {
+  const rows = [
+    { id: "a", vision: true },
+    { id: "b", input_modalities: ["text", "image"] },
+    { id: "c", modalities: { input: ["text"] } },
+    { id: "d", architecture: { input_modalities: ["image", "text"] } },
+    { id: "e" },
+  ];
+  assert.deepEqual(parseCatalog(rows).map((m) => [m.id, m.vision]), [
+    ["a", true],
+    ["b", true],
+    ["c", false],
+    ["d", true],
+    ["e", undefined],
+  ]);
+});

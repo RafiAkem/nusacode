@@ -16,6 +16,13 @@
  */
 import { createHash } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { messages } from "../lib/i18n.ts";
+
+// Only the user's warning is translated; the truncation markers below are for the model.
+const t = messages(
+  { cacheWarning: "cache prefix changed, input cost may rise ~10x" },
+  { cacheWarning: "prefix cache berubah, biaya input bisa naik ~10x" },
+);
 
 /**
  * Lines kept per `read`/`bash` result. `NUSACODE_TRUNCATE_LINES=0` disables truncation.
@@ -31,7 +38,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
  * does not compress tool output at all.
  */
 const MAX_LINES = Number(process.env.NUSACODE_TRUNCATE_LINES ?? 200);
-const CACHE_WARNING = "cache prefix changed, input cost may rise ~10x";
 const MECHANICAL = /\b(rename|ganti nama|ubah nama|replace|ganti string|ganti teks|ganti kata|find and replace|typo|sed -i)\b/i;
 
 function linesOf(text: string): string[] {
@@ -173,6 +179,6 @@ export default function tokenSaver(pi: ExtensionAPI) {
     const previous = lastPrefix;
     lastPrefix = fingerprint;
     if (previous === null || previous === fingerprint) return;
-    ctx.ui.notify(CACHE_WARNING, "warning");
+    ctx.ui.notify(t("cacheWarning"), "warning");
   });
 }

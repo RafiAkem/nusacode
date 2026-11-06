@@ -12,6 +12,36 @@ import type { Component, TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { findImagePaths, formatBytes, isImageFile, mimeFor, openExternally, Picture, readForModel } from "../lib/image-preview.ts";
+import { messages } from "../lib/i18n.ts";
+
+const t = messages(
+  {
+    enlargedHint: "{key} next · {open} open full size · esc close",
+    stripHint: "{key} to enlarge · {open} open full size",
+    stripHintMore: "+{more} more · {key} to enlarge · {open} open full size",
+    noPreviewLabel: "#{id} no preview",
+    title: "Image #{id} · {name} · {size}",
+    titleSized: "Image #{id} · {name} · {width}×{height} · {size}",
+    noPreview: "(no preview for this file)",
+    openShortcut: "Open the attached image in your image viewer at full size",
+    enlargeShortcut: "Enlarge the attached images",
+    noVision: "{model} can't see images, so only your text was sent. Switch model with /model: the ones that can are marked (vision).",
+    readFailed: "Could not read {path}, so it was not attached.",
+  },
+  {
+    enlargedHint: "{key} berikutnya · {open} buka ukuran penuh · esc tutup",
+    stripHint: "{key} untuk perbesar · {open} buka ukuran penuh",
+    stripHintMore: "+{more} lagi · {key} untuk perbesar · {open} buka ukuran penuh",
+    noPreviewLabel: "#{id} tak terbaca",
+    title: "Gambar #{id} · {name} · {size}",
+    titleSized: "Gambar #{id} · {name} · {width}×{height} · {size}",
+    noPreview: "(tidak ada pratinjau untuk file ini)",
+    openShortcut: "Buka gambar yang dilampirkan di penampil gambar dalam ukuran penuh",
+    enlargeShortcut: "Perbesar gambar yang dilampirkan",
+    noVision: "{model} tidak bisa melihat gambar, jadi hanya teks kamu yang dikirim. Ganti model dengan /model: model yang bisa ditandai (vision).",
+    readFailed: "Tidak bisa membaca {path}, jadi file ini tidak dilampirkan.",
+  },
+);
 
 export const TOKEN = /\[Image #(\d+)\]/g;
 const THUMB_COLS = 16;
@@ -37,7 +67,7 @@ export function stripLines(view: StripView, width: number, theme: Pick<Theme, "f
   if (view.items.length === 0) return [];
   if (view.enlarged) {
     return [
-      truncateToWidth(`${theme.fg("accent", theme.bold(view.enlarged.title))}  ${theme.fg("dim", `${key} next · ${OPEN_KEY} open full size · esc close`)}`, width, "…"),
+      truncateToWidth(`${theme.fg("accent", theme.bold(view.enlarged.title))}  ${theme.fg("dim", t("enlargedHint", { key, open: OPEN_KEY }))}`, width, "…"),
       ...view.enlarged.rows.map((row) => truncateToWidth(row, width, "")),
     ];
   }
@@ -50,7 +80,7 @@ export function stripLines(view: StripView, width: number, theme: Pick<Theme, "f
   }
   lines.push(shown.map((item) => theme.fg("dim", pad(truncateToWidth(item.label, THUMB_COLS, "…"), THUMB_COLS))).join(" ".repeat(GAP)));
   const more = view.items.length - shown.length;
-  lines.push(theme.fg("dim", `${more > 0 ? `+${more} more · ` : ""}${key} to enlarge · ${OPEN_KEY} open full size`));
+  lines.push(theme.fg("dim", more > 0 ? t("stripHintMore", { more, key, open: OPEN_KEY }) : t("stripHint", { key, open: OPEN_KEY })));
   return lines.map((line) => truncateToWidth(line, width, ""));
 }
 
@@ -171,7 +201,7 @@ class State {
     const present = this.present();
     const items = present.map((a) => ({
       id: a.id,
-      label: `#${a.id} ${a.picture ? `${a.picture.width}×${a.picture.height}` : "no preview"}`,
+      label: a.picture ? `#${a.id} ${a.picture.width}×${a.picture.height}` : t("noPreviewLabel", { id: a.id }),
       thumb: a.picture ? a.picture.render(THUMB_COLS, THUMB_ROWS) : [],
     }));
     const big = present.find((a) => a.id === this.enlargedId);
@@ -179,8 +209,10 @@ class State {
       items,
       enlarged: big
         ? {
-            title: `Image #${big.id} · ${big.picture?.name ?? big.path} · ${big.picture ? `${big.picture.width}×${big.picture.height} · ` : ""}${formatBytes(big.picture?.bytes ?? 0)}`,
-            rows: big.picture ? big.picture.render(bigSize(width).cols, bigSize(width).rows, 4) : ["(no preview for this file)"],
+            title: big.picture
+              ? t("titleSized", { id: big.id, name: big.picture.name, width: big.picture.width, height: big.picture.height, size: formatBytes(big.picture.bytes) })
+              : t("title", { id: big.id, name: big.path, size: formatBytes(0) }),
+            rows: big.picture ? big.picture.render(bigSize(width).cols, bigSize(width).rows, 4) : [t("noPreview")],
           }
         : null,
     };
@@ -234,13 +266,13 @@ export default function images(pi: ExtensionAPI) {
   });
 
   pi.registerShortcut(OPEN_KEY, {
-    description: "Open the attached image in your image viewer at full size",
+    description: t("openShortcut"),
     handler: () => {
       const shown = state.present().find((a) => a.id === state.enlargedId) ?? state.present()[0];
       if (shown) openExternally(shown.path);
     },
   });
-  pi.registerShortcut("alt+i", { description: "Enlarge the attached images", handler: () => state.cycle() });
+  pi.registerShortcut("alt+i", { description: t("enlargeShortcut"), handler: () => state.cycle() });
 
   pi.on("input", (event, ctx) => {
     // Paths typed or pasted just before Enter have not been swapped for tokens yet.
@@ -252,7 +284,7 @@ export default function images(pi: ExtensionAPI) {
     const files = ids.flatMap((id) => state.attachments.get(id) ?? []);
     if (files.length === 0) return { action: "continue" as const };
     if (ctx.model && !ctx.model.input.includes("image")) {
-      ctx.ui.notify(`${ctx.model.name ?? ctx.model.id} can't see images, so only your text was sent. Switch model with /model: the ones that can are marked (vision).`, "warning");
+      ctx.ui.notify(t("noVision", { model: ctx.model.name ?? ctx.model.id }), "warning");
       state.clear();
       return { action: "transform" as const, text, images: event.images };
     }
@@ -261,7 +293,7 @@ export default function images(pi: ExtensionAPI) {
         const { data, mimeType } = readForModel(file.path);
         return [{ type: "image" as const, data, mimeType: mimeType || mimeFor(file.path) }];
       } catch {
-        ctx.ui.notify(`Could not read ${file.path}, so it was not attached.`, "warning");
+        ctx.ui.notify(t("readFailed", { path: file.path }), "warning");
         return [];
       }
     });

@@ -8,10 +8,39 @@
 import type { ExtensionAPI, SessionInfo } from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { sessionLabel, timeAgo } from "./brand.ts";
+import { messages } from "../lib/i18n.ts";
+
+const t = messages(
+  {
+    description: "Switch session quickly. Add words to filter, or `all` to search every folder",
+    listFailed: "Could not list sessions: {error}",
+    noMatch: 'No other sessions match "{query}".',
+    noneHere: "No other sessions here yet.",
+    title: "Switch session",
+    titleAll: "Switch session (all folders)",
+    titleMatching: 'Switch session matching "{query}"',
+    titleMatchingAll: 'Switch session matching "{query}" (all folders)',
+    newSession: "+ New session",
+    messageOne: "{count} msg",
+    messageMany: "{count} msgs",
+  },
+  {
+    description: "Ganti sesi dengan cepat. Tambahkan kata untuk menyaring, atau `all` untuk cari di semua folder",
+    listFailed: "Tidak bisa memuat daftar sesi: {error}",
+    noMatch: 'Tidak ada sesi lain yang cocok dengan "{query}".',
+    noneHere: "Belum ada sesi lain di sini.",
+    title: "Ganti sesi",
+    titleAll: "Ganti sesi (semua folder)",
+    titleMatching: 'Ganti sesi yang cocok dengan "{query}"',
+    titleMatchingAll: 'Ganti sesi yang cocok dengan "{query}" (semua folder)',
+    newSession: "+ Sesi baru",
+    messageOne: "{count} pesan",
+    messageMany: "{count} pesan",
+  },
+);
 
 const MAX_CHOICES = 30;
 const LABEL_WIDTH = 60;
-export const NEW_SESSION = "+ New session";
 
 type Listed = Pick<SessionInfo, "path" | "cwd" | "name" | "firstMessage" | "messageCount" | "modified" | "allMessagesText">;
 
@@ -42,7 +71,7 @@ function folderOf(cwd: string): string {
 export function choiceLabel(index: number, session: Listed, now: Date, showFolder: boolean): string {
   const parts = [
     clip(sessionLabel(session)),
-    `${session.messageCount} msg${session.messageCount === 1 ? "" : "s"}`,
+    t(session.messageCount === 1 ? "messageOne" : "messageMany", { count: session.messageCount }),
     timeAgo(session.modified, now),
   ];
   if (showFolder && session.cwd) parts.push(folderOf(session.cwd));
@@ -59,27 +88,28 @@ export function pickable(sessions: Listed[], current: string | undefined, query:
 
 export default function sessions(pi: ExtensionAPI) {
   pi.registerCommand("sessions", {
-    description: "Switch session quickly. Add words to filter, or `all` to search every folder",
+    description: t("description"),
     handler: async (args, ctx) => {
       const { all, query } = parseArgs(args);
       let found: Listed[];
       try {
         found = all ? await SessionManager.listAll() : await SessionManager.list(ctx.cwd, ctx.sessionManager.getSessionDir());
       } catch (err) {
-        ctx.ui.notify(`Could not list sessions: ${err instanceof Error ? err.message : String(err)}`, "error");
+        ctx.ui.notify(t("listFailed", { error: err instanceof Error ? err.message : String(err) }), "error");
         return;
       }
       const options = pickable(found, ctx.sessionManager.getSessionFile(), query);
       if (options.length === 0) {
-        ctx.ui.notify(query ? `No other sessions match "${query}".` : "No other sessions here yet.", "info");
+        ctx.ui.notify(query ? t("noMatch", { query }) : t("noneHere"), "info");
         return;
       }
       const now = new Date();
       const labels = options.map((session, i) => choiceLabel(i + 1, session, now, all));
-      const title = `Switch session${query ? ` matching "${query}"` : ""}${all ? " (all folders)" : ""}`;
-      const picked = await ctx.ui.select(title, [NEW_SESSION, ...labels]);
+      const titleKey = query ? (all ? "titleMatchingAll" : "titleMatching") : all ? "titleAll" : "title";
+      const newSession = t("newSession");
+      const picked = await ctx.ui.select(t(titleKey, { query }), [newSession, ...labels]);
       if (!picked) return;
-      if (picked === NEW_SESSION) {
+      if (picked === newSession) {
         await ctx.newSession();
         return;
       }
