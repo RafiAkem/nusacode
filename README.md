@@ -106,8 +106,8 @@ Start a message with `!` to run a shell command, or `!!` to run it without sendi
 
 At 80% of the session limit you get a warning. At 100% the agent stops, and your next message asks whether to raise the
 limit, send without one, or hold off (your text stays in the box). Subagents count, because the limit follows the
-same total as `/usage`. The limit can only count models that have a NusaGate price, and `/budget` says when some
-responses had none.
+same total as `/usage`. The limit can only count responses that have a NusaGate price. If one doesn't (the prices didn't
+load, or the model isn't in NusaGate's catalog), you're warned the first time, since the limit can't protect you there.
 
 ## How it works
 
