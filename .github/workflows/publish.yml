@@ -7,8 +7,10 @@ name: Publish
 #   What counts as "shipped" comes from the `files` list in package.json (scripts/release.cjs).
 # - The version is the next patch after what npm has, unless package.json already says something
 #   higher: bump it there, and add a `## [x.y.z]` section to CHANGELOG.md, for a minor or major release.
-# - A release with a CHANGELOG.md section for its version uses that as its notes. Any other
-#   release gets notes generated from the pull requests and commits since the last one.
+# - The release notes come from CHANGELOG.md: the section for that version when there is one,
+#   otherwise the entries added under "Unreleased" since the last release tag, so nobody has to
+#   move entries by hand. Only when neither has anything are notes generated from the pull
+#   requests and commits since the last release.
 # - The tag points at the commit that was published. That commit still says the old version in
 #   package.json, because the bump is made on the runner only.
 #
@@ -106,9 +108,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The changelog as the last release had it, so the notes are only what was added since.
+          last=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
+          if [ -n "$last" ]; then git show "$last:CHANGELOG.md" > previous-changelog.md 2>/dev/null || : > previous-changelog.md; else : > previous-changelog.md; fi
           git tag -a "v$VERSION" -m "NusaCode $VERSION"
           git push origin "v$VERSION"
-          if node scripts/release.cjs notes "$VERSION" > notes.md; then
+          if node scripts/release.cjs notes "$VERSION" previous-changelog.md > notes.md; then
+            if [ -n "$last" ]; then printf '\n**Full Changelog**: %s/compare/%s...v%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$last" "$VERSION" >> notes.md; fi
             gh release create "v$VERSION" --title "v$VERSION" --notes-file notes.md --verify-tag
           else
             gh release create "v$VERSION" --title "v$VERSION" --generate-notes --verify-tag
