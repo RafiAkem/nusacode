@@ -5,7 +5,7 @@
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { agentDir } from "../lib/home.ts";
-import { appendRecord, pruneLog } from "../lib/usage-log.ts";
+import { appendRecord, compactLog } from "../lib/usage-log.ts";
 import { COST_CHANNEL, type CostEvent } from "./meter.ts";
 
 export default function history(pi: ExtensionAPI) {
@@ -22,7 +22,7 @@ export default function history(pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     lastCtx = ctx;
     try {
-      pruneLog(agentDir(), new Date());
+      compactLog(agentDir(), new Date());
     } catch {
       // An unreadable log is left alone; recording still works.
     }

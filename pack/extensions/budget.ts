@@ -8,7 +8,8 @@
  *
  * Amounts come from meter.ts, which publishes every priced response on COST_CHANNEL
  * with the session total, so this file never prices anything itself and counts
- * subagents too. A model without a price can't be counted, and the report says so.
+ * subagents too. A model without a price can't be counted: with a limit set, the first such
+ * response says so once, because otherwise the limit would quietly stop protecting anything.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { agentDir } from "../lib/home.ts";
@@ -24,6 +25,7 @@ export default function budget(pi: ExtensionAPI) {
   let spent = 0;
   let turnStart = 0;
   let unpriced = false;
+  let warnedUnpriced = false;
   let warned = false;
   let stopped = false;
   let warnedTurn = false;
@@ -74,6 +76,7 @@ export default function budget(pi: ExtensionAPI) {
     turnStart = 0;
     inPrompt = false;
     unpriced = false;
+    warnedUnpriced = false;
     warned = false;
     stopped = false;
     warnedTurn = false;
@@ -99,7 +102,12 @@ export default function budget(pi: ExtensionAPI) {
     const event = data as CostEvent;
     spent = event.sessionIdr;
     if (event.unpriced) unpriced = true;
-    if (lastCtx) check(lastCtx);
+    if (!lastCtx) return;
+    if (event.unpriced && limits.sessionIdr !== null && !warnedUnpriced) {
+      warnedUnpriced = true;
+      lastCtx.ui.notify(`A response had no price, and the budget can't count responses without a price (NusaGate's prices didn't load, or this model isn't in its catalog), so spending can pass the limit without a warning.`, "warning");
+    }
+    check(lastCtx);
   });
 
   // The abort may not land before the model asks for another tool.
@@ -169,6 +177,10 @@ export default function budget(pi: ExtensionAPI) {
       }
       if (command.target === "session" && command.amount !== null && spent >= command.amount) {
         parts.push(`${idr(spent)} is already spent, so the next message will ask what to do.`);
+      }
+      if (command.amount !== null && unpriced) {
+        warnedUnpriced = true;
+        parts.push(`Note: some responses so far had no price, and the budget can't count responses without a price (NusaGate's prices didn't load, or this model isn't in its catalog), so spending can pass the limit without a warning.`);
       }
       ctx.ui.notify(parts.join(" "), "info");
       showStatus(ctx);

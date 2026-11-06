@@ -98,8 +98,8 @@ Start a message with `!` to run a shell command, or `!!` to run it without sendi
 Every response is recorded in `usage.jsonl` in the NusaCode home, so `/usage` can show today's and this month's
 spending across sessions, and `/usage history` can compare models by total cost, cost per request and cache hit rate.
 Only the time, the model name, token counts and the cost are saved, never your messages. Costs stay as they were
-charged, so a later price change doesn't rewrite them. Delete the file to start over; entries older than 400 days
-are dropped when it grows past 2 MB.
+charged, so a later price change doesn't rewrite them. Once the file passes 1 MB, everything before today is folded into
+one line per day and model, which keeps every total and keeps the file small. Delete the file to start over.
 
 ## Budget
 
@@ -115,8 +115,8 @@ are dropped when it grows past 2 MB.
 
 At 80% of the session limit you get a warning. At 100% the agent stops, and your next message asks whether to raise the
 limit, send without one, or hold off (your text stays in the box). Subagents count, because the limit follows the
-same total as `/usage`. The limit can only count models that have a NusaGate price, and `/budget` says when some
-responses had none.
+same total as `/usage`. The limit can only count responses that have a NusaGate price. If one doesn't (the prices didn't
+load, or the model isn't in NusaGate's catalog), you're warned the first time, since the limit can't protect you there.
 
 ### Before you send
 

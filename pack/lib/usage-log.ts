@@ -26,13 +26,15 @@ export type LogRecord = {
   sub?: true;
   /** The model had no price, so `cost` says nothing. */
   unpriced?: true;
+  /** A day's summary stands for this many responses (1 when absent). */
+  n?: number;
+  /** How many of those had no price. */
+  nu?: number;
 };
 
 export const LOG_FILE = "usage.jsonl";
-/** Records older than this are dropped when the file gets big. */
-const KEEP_DAYS = 400;
-const PRUNE_ABOVE_BYTES = 2_000_000;
-const DAY_MS = 86_400_000;
+/** Past this size, everything before today is folded into one line per day and model. */
+const COMPACT_ABOVE_BYTES = 1_000_000;
 
 const isCount = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 
@@ -51,6 +53,8 @@ function parseRecord(line: string): LogRecord | null {
       output: row.output,
       ...(row.sub === true ? { sub: true as const } : {}),
       ...(row.unpriced === true ? { unpriced: true as const } : {}),
+      ...(Number.isInteger(row.n) && (row.n as number) > 0 ? { n: row.n as number } : {}),
+      ...(Number.isInteger(row.nu) && (row.nu as number) > 0 ? { nu: row.nu as number } : {}),
     };
   } catch {
     return null;
@@ -76,19 +80,88 @@ export function appendRecord(dir: string, record: LogRecord): void {
   appendFileSync(join(dir, LOG_FILE), `${JSON.stringify(record)}\n`);
 }
 
-/** Drops old records once the file is large, so the log never grows without bound. */
-export function pruneLog(dir: string, now: Date): void {
+function dayKey(date: Date): string {
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}
+
+/**
+ * Folds records from before today into one summary per local day, model and source. No report
+ * looks closer than a day, so every total stays exactly the same, and the file stays small.
+ */
+export function compactRecords(records: LogRecord[], now: Date): LogRecord[] {
+  const today = startOfDay(now).getTime();
+  const days = new Map<string, LogRecord>();
+  const recent: LogRecord[] = [];
+  for (const record of records) {
+    const at = new Date(record.t);
+    if (at.getTime() >= today) {
+      recent.push(record);
+      continue;
+    }
+    const key = `${dayKey(at)}|${record.model}|${record.sub ? 1 : 0}`;
+    const summary = days.get(key) ?? {
+      // Noon, so a later change of time zone doesn't move the summary to another day.
+      t: new Date(at.getFullYear(), at.getMonth(), at.getDate(), 12).toISOString(),
+      model: record.model,
+      cost: 0,
+      fresh: 0,
+      cached: 0,
+      output: 0,
+      ...(record.sub ? { sub: true as const } : {}),
+      n: 0,
+      nu: 0,
+    };
+    summary.cost += record.cost;
+    summary.fresh += record.fresh;
+    summary.cached += record.cached;
+    summary.output += record.output;
+    summary.n = (summary.n ?? 0) + (record.n ?? 1);
+    summary.nu = (summary.nu ?? 0) + (record.nu ?? (record.unpriced ? 1 : 0));
+    days.set(key, summary);
+  }
+  const summaries = [...days.values()].map((summary) => {
+    const { nu, ...rest } = summary;
+    return nu ? summary : rest;
+  });
+  return [...summaries.sort((a, b) => a.t.localeCompare(b.t)), ...recent];
+}
+
+/**
+ * The compacted file, given what was read to compact (`before`) and what the file holds now
+ * (`after`). Another NusaCode window may append in between, so those lines are carried over as they
+ * are. If the file changed in any other way, null: writing would lose something.
+ */
+export function compactBytes(before: Buffer, after: Buffer, now: Date): Buffer | null {
+  if (after.length < before.length || !after.subarray(0, before.length).equals(before)) return null;
+  const records = before
+    .toString("utf8")
+    .split("\n")
+    .flatMap((line) => {
+      const record = line.trim() ? parseRecord(line) : null;
+      return record ? [record] : [];
+    });
+  const body = compactRecords(records, now)
+    .map((record) => `${JSON.stringify(record)}\n`)
+    .join("");
+  return Buffer.concat([Buffer.from(body, "utf8"), after.subarray(before.length)]);
+}
+
+/** Compacts the log once it has grown large; see compactRecords and compactBytes. */
+export function compactLog(dir: string, now: Date): void {
   const file = join(dir, LOG_FILE);
   try {
-    if (statSync(file).size <= PRUNE_ABOVE_BYTES) return;
+    if (statSync(file).size <= COMPACT_ABOVE_BYTES) return;
+    const before = readFileSync(file);
+    // Read again: lines another window appended since are kept. Only one appended while the
+    // compacted file is being written could still be lost, a window of milliseconds once in a long while.
+    const compacted = compactBytes(before, readFileSync(file), now);
+    if (compacted === null) return;
+    const temp = `${file}.${process.pid}.tmp`;
+    writeFileSync(temp, compacted);
+    renameSync(temp, file);
   } catch {
-    return;
+    // Compacting is housekeeping: if it can't happen now, the next session tries again.
   }
-  const cutoff = now.getTime() - KEEP_DAYS * DAY_MS;
-  const kept = readLog(dir).filter((record) => Date.parse(record.t) >= cutoff);
-  const temp = `${file}.tmp`;
-  writeFileSync(temp, kept.map((record) => `${JSON.stringify(record)}\n`).join(""));
-  renameSync(temp, file);
 }
 
 export type Period = "today" | "week" | "month" | "all";
@@ -118,11 +191,11 @@ const emptyTotal = (): Total => ({ cost: 0, requests: 0, fresh: 0, cached: 0, ou
 
 function add(total: Total, record: LogRecord): void {
   total.cost += record.cost;
-  total.requests += 1;
+  total.requests += record.n ?? 1;
   total.fresh += record.fresh;
   total.cached += record.cached;
   total.output += record.output;
-  if (record.unpriced) total.unpriced += 1;
+  total.unpriced += record.nu ?? (record.unpriced ? 1 : 0);
 }
 
 export function within(records: LogRecord[], from: Date | null): LogRecord[] {
