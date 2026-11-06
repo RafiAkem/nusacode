@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Models that take images are marked `(vision)` in `/model`. A `model-capabilities.json` in the NusaCode home sets vision, maximum output and context window per model.
+
 ### Changed
 - `nusacode --version` prints both the NusaCode and the pi version.
 

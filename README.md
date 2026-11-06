@@ -196,6 +196,20 @@ The `/model` list comes from NusaGate's catalog and is cached in `nusagate-model
 resolves at startup before the network finishes. The catalog has no capability fields, so every model currently
 uses the same limits: text input and 16,384 output tokens. DeepSeek models are registered as reasoning models, so `/thinking` works on them; other models have no thinking levels.
 
+The catalog doesn't say which models can see images or how long a reply may be, and NusaCode only lists what it has
+checked. Models that take images are marked `(vision)` in `/model`. If you know more about a model, say so in
+`model-capabilities.json` in the NusaCode home, by model id or by a prefix ending in `*`. An exact id wins over a
+prefix, and your file wins over NusaCode's own list:
+
+```json
+{
+  "gpt-6-sol": { "vision": true, "maxOutput": 32768 },
+  "qwen3.8-*": { "contextWindow": 262144 }
+}
+```
+
+`vision`, `maxOutput` and `contextWindow` are the fields it reads. Restart NusaCode after editing it.
+
 </details>
 
 ## Configuration
@@ -206,6 +220,7 @@ Everything lives in `~/.nusacode/`, or wherever `NUSACODE_HOME` points:
 ~/.nusacode/
 ├── settings.json     your settings
 ├── models.json       provider definition
+├── model-capabilities.json  what each model can do, if you add it (see Models)
 ├── auth.json         API key, if you entered one during setup
 ├── AGENTS.md         global instructions, if imported
 ├── agents/           subagent definitions
