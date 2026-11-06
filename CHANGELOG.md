@@ -17,6 +17,9 @@
 - `nusacode --version` prints both the NusaCode and the pi version.
 - Learned skills are now proposed, not saved straight into use: `/skills review` shows each one (a diff for an update, and notes on anything risky) and only an approved skill loads. Set `NUSACODE_AUTO_APPROVE_SKILLS=1` to keep the old behavior.
 
+### Fixed
+- `/bug` uploaded the session to pi's developers, the model was told it was running inside pi, and the window title said pi. NusaCode's changes to pi reached only files that pi 1.5.0 no longer runs; they now also reach the bundle it starts from. `/bug` opens a GitHub issue and uploads nothing.
+
 ## [0.1.0] - 2026-11-06
 
 First public release.
