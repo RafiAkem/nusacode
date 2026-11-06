@@ -312,6 +312,8 @@ Everything lives in `~/.nusacode/`, or wherever `NUSACODE_HOME` points:
 ├── budget.json       default spending limits, if you saved any (see Budget)
 ├── usage.jsonl       spending history: one line per response, with the model, tokens and cost
 ├── auth.json         API key, if you entered one during setup
+├── language.json     NusaCode's language, if you picked one
+├── update-check.json when NusaCode last asked npm for a newer version, and the answer
 ├── AGENTS.md         global instructions, if imported
 ├── agents/           subagent definitions
 ├── skills/           imported and approved learned skills
@@ -350,6 +352,7 @@ default, so without a NusaGate key, set your own `model` in the agents in `~/.nu
 | `NUSACODE_HOME` | Home directory (default `~/.nusacode`) |
 | `NUSACODE_SKIP_SETUP=1` | Skip first-time setup |
 | `NUSACODE_NO_SPLASH=1` | Skip the setup splash |
+| `NUSACODE_NO_UPDATE_CHECK=1` | Don't ask npm for a newer version. NusaCode otherwise asks at most once a day and shows it on the welcome screen |
 | `NUSACODE_NO_LEARN=1` | Turn off automatic learning |
 | `NUSACODE_AUTO_APPROVE_SKILLS=1` | Save learned skills straight into use, without `/skills review` |
 | `NUSACODE_LEARN_MODEL` | Model for learning reviews, as `provider/model` |

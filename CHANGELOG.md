@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- The welcome screen says when a newer NusaCode is on npm, with the command to update. It asks npm at most once a day, never delays startup, and stays quiet offline or with `NUSACODE_NO_UPDATE_CHECK=1`.
 - NusaCode's screens can be shown in Bahasa Indonesia: pick it in `/setup` or with `/language`. English stays the default. It covers NusaCode's own text (setup, welcome screen, footer, `/usage` and the other NusaCode commands); pi's built-in screens and what the agent replies in are unchanged.
 - Models that take images are marked `(vision)` in `/model`. A `model-capabilities.json` in the NusaCode home sets vision, maximum output and context window per model.
 - `/budget` sets a spending limit for the session, with a warning at 80% and a stop at 100%, and a warning for any single prompt that costs too much. `--default` keeps a limit for new sessions.
@@ -16,6 +17,9 @@
 - `/setup` is now one full-screen wizard. It opens with the N forming and a light drawing NusaGate's halo around it, then asks which language NusaCode should use, redrawing itself in each one as you move between them. The API key step shows your balance, a new step picks the default model, showing each one's context window, price in rupiah and dollars, and whether it takes images, the import step is a checklist, and a closing screen sums up what was set. `/import-config` uses the same checklist.
 - `nusacode --version` prints both the NusaCode and the pi version.
 - Learned skills are now proposed, not saved straight into use: `/skills review` shows each one (a diff for an update, and notes on anything risky) and only an approved skill loads. Set `NUSACODE_AUTO_APPROVE_SKILLS=1` to keep the old behavior.
+
+### Fixed
+- The welcome screen showed v0.1.0 whatever version was installed.
 
 ## [0.1.0] - 2026-11-06
 

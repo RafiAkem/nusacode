@@ -241,3 +241,12 @@ test("sessionLabel prefers the name, then flattens the first prompt", () => {
   assert.equal(sessionLabel({ firstMessage: "baris satu\n  baris dua", messageCount: 2 }), "baris satu baris dua");
   assert.equal(sessionLabel({ firstMessage: "(no messages)", messageCount: 0 }), "Untitled");
 });
+
+test("an available update shows in the title and takes the tip's line, without changing the height", () => {
+  const before = render();
+  const after = render({ update: "9.9.9" });
+  assert.equal(after.length, before.length, "the header keeps its height");
+  assert.match(after[0]!, /NusaCode v\S+ → v9\.9\.9/);
+  assert.match(after[after.length - 1]!, /Update: v9\.9\.9 is out\. Run npm install -g nusacode@latest/);
+  assert.doesNotMatch(after.join("\n"), /Tip: /);
+});

@@ -12,12 +12,15 @@
  */
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Color, Component, TUI } from "@earendil-works/pi-tui";
 import { foregroundAnsi, mixColors, parseColor, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ContextUsage, ExtensionAPI, ExtensionContext, SessionInfo, Theme } from "@earendil-works/pi-coding-agent";
 import { keyText, SessionManager } from "@earendil-works/pi-coding-agent";
 import { SUMMARY_CHANNEL, type SummaryRow } from "./meter.ts";
 import { messages } from "../lib/i18n.ts";
+import { agentDir } from "../lib/home.ts";
+import { availableUpdate, UPDATE_COMMAND } from "../lib/update-check.ts";
 
 const t = messages(
   {
@@ -28,6 +31,8 @@ const t = messages(
     recentSessions: "Recent sessions",
     noRecentSessions: "No recent sessions",
     tipLabel: "Tip: ",
+    updateLabel: "Update: ",
+    updateText: "v{version} is out. Run {command}",
     tipUsage: "/usage shows session cost, tokens and balance.",
     tipTopup: "/topup shows your balance and a NusaGate top-up link.",
     tipResume: "/resume continues an earlier session.",
@@ -62,6 +67,8 @@ const t = messages(
     recentSessions: "Sesi terakhir",
     noRecentSessions: "Belum ada sesi",
     tipLabel: "Tips: ",
+    updateLabel: "Update: ",
+    updateText: "v{version} sudah rilis. Jalankan {command}",
     tipUsage: "/usage menampilkan biaya sesi, token, dan saldo.",
     tipTopup: "/topup menampilkan saldo kamu dan link top up NusaGate.",
     tipResume: "/resume melanjutkan sesi sebelumnya.",
@@ -164,9 +171,24 @@ function tips(): string[] {
   return [t("tipUsage"), t("tipTopup"), t("tipResume"), t("tipTask"), t("tipBang")];
 }
 
+/** The NusaCode install this pack ships inside: pack/extensions → the package root. */
+const INSTALL_DIR = fileURLToPath(new URL("../../", import.meta.url));
+
+/**
+ * The version that was installed. That is the root package.json: the release
+ * workflow bumps only that one, so pack/package.json always says the first version.
+ * The pack's own file is the fallback for when it is loaded on its own.
+ */
 function readVersion(): string {
-  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-  return String(manifest.version);
+  for (const file of ["../../package.json", "../package.json"]) {
+    try {
+      const manifest = JSON.parse(readFileSync(new URL(file, import.meta.url), "utf8"));
+      if (file === "../package.json" || manifest.name === "nusacode") return String(manifest.version);
+    } catch {
+      // Try the next one.
+    }
+  }
+  return "0.0.0";
 }
 
 function haloCell(cell: HaloCell, phase: number | null): { glyph: string; color: Color } {
@@ -227,6 +249,8 @@ export function sessionLabel(session: Pick<SessionInfo, "name" | "firstMessage" 
 
 export type WelcomeView = {
   version: string;
+  /** A newer version on npm, once the background check finds one. */
+  update?: string | null;
   model: string;
   provider: string;
   /** Key, then what it does. */
@@ -291,7 +315,10 @@ export function welcomeLines(view: WelcomeView, termWidth: number, theme: Theme,
   ];
   const right = twoColumns ? rightColumn(view, rightWidth, theme) : [];
 
-  const title = `${border("───")} ${theme.bold(theme.fg("accent", "NusaCode"))}${theme.fg("muted", ` v${view.version} `)}`;
+  const version = view.update
+    ? `${theme.fg("muted", ` v${view.version} → `)}${theme.bold(theme.fg("warning", `v${view.update}`))} `
+    : theme.fg("muted", ` v${view.version} `);
+  const title = `${border("───")} ${theme.bold(theme.fg("accent", "NusaCode"))}${version}`;
   const titleFill = Math.max(0, boxWidth - 2 - visibleWidth(title));
   const lines = [`${border("╭")}${truncateToWidth(title, boxWidth - 2, "…")}${border(`${"─".repeat(titleFill)}╮`)}`];
 
@@ -304,7 +331,13 @@ export function welcomeLines(view: WelcomeView, termWidth: number, theme: Theme,
     border(twoColumns ? `╰${"─".repeat(leftWidth)}┴${"─".repeat(rightWidth)}╯` : `╰${"─".repeat(leftWidth)}╯`),
   );
 
-  if (view.tip) {
+  // The update notice takes the tip's line, so the header never changes height
+  // when the check answers after the screen is drawn.
+  if (view.update) {
+    const label = theme.fg("warning", t("updateLabel"));
+    const text = theme.fg("muted", t("updateText", { version: view.update, command: UPDATE_COMMAND }));
+    lines.push(truncateToWidth(` ${label}${text}`, boxWidth, "…"));
+  } else if (view.tip) {
     const label = theme.fg("customMessageLabel", t("tipLabel"));
     lines.push(truncateToWidth(` ${theme.italic(label + theme.fg("muted", view.tip))}`, boxWidth, "…"));
   }
@@ -550,6 +583,15 @@ export default function brand(pi: ExtensionAPI) {
       (sessions) => mounted?.update({ sessions }),
       () => {}, // The panel's "no sessions" line is an acceptable fallback.
     );
+    if (event.reason === "startup") {
+      void availableUpdate({ current: view.version, dir: agentDir(), installDir: INSTALL_DIR }).then(
+        (update) => {
+          view.update = update;
+          if (update) mounted?.update({ update });
+        },
+        () => {},
+      );
+    }
   });
 
   pi.on("model_select", (event) => {
