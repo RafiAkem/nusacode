@@ -2,14 +2,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
 
 const require = createRequire(import.meta.url);
 const root = join(import.meta.dirname, "..", "..");
 const script = join(root, "scripts", "release.cjs");
-const { nextVersion, shippedPaths, shippedChanges, changelogSection } = require(script);
+const { nextVersion, shippedPaths, shippedChanges, changelogSection, unreleasedEntries, newEntriesNotes, releaseNotes } = require(script);
 const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
 test("the next version is npm's next patch, unless package.json asks for more", () => {
@@ -129,4 +130,54 @@ test("the publish workflow is valid YAML, skips quietly when nothing ships, and 
   }
   assert.match(steps[decide].run ?? "", /exit 1/, "a failure of the script itself is an error, not a skip");
   assert.match(steps[tag].run ?? "", /gh release create/);
+});
+
+test("without a version section, the notes are the Unreleased entries added since the last release", () => {
+  const previous = ["# Changelog", "", "## [Unreleased]", "", "### Added", "- Old feature.", "", "## [0.1.0] - 2026-11-06", "First."].join("\n");
+  const current = [
+    "# Changelog",
+    "",
+    "## [Unreleased]",
+    "",
+    "### Added",
+    "- New feature,",
+    "  over two lines.",
+    "- Old feature.",
+    "",
+    "### Fixed",
+    "- A bug.",
+    "",
+    "## [0.1.0] - 2026-11-06",
+    "First.",
+  ].join("\n");
+  assert.equal(newEntriesNotes(current, previous), "### Added\n- New feature,\n  over two lines.\n\n### Fixed\n- A bug.");
+  assert.equal(newEntriesNotes(previous, previous), null, "nothing new is no notes");
+  assert.equal(newEntriesNotes(current.replace(/\n/g, "\r\n"), previous), "### Added\n- New feature,\n  over two lines.\n\n### Fixed\n- A bug.", "Windows line endings");
+  assert.match(newEntriesNotes(current, "") ?? "", /Old feature/, "with no earlier changelog, everything is new");
+  assert.deepEqual(unreleasedEntries("no unreleased section"), []);
+});
+
+test("a version's own section wins over the Unreleased entries", () => {
+  const current = "## [Unreleased]\n- Pending.\n\n## [0.3.0]\n- Shipped in 0.3.0.\n";
+  assert.equal(releaseNotes(current, "0.3.0", ""), "- Shipped in 0.3.0.");
+  assert.equal(releaseNotes(current, "0.3.1", ""), "- Pending.");
+  assert.equal(releaseNotes(current, "0.3.1", undefined), null, "no earlier changelog given, no guessing");
+});
+
+test("the notes command reads the earlier changelog from a file, and the workflow passes the last tag's", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "nusacode-release-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const previous = join(dir, "previous.md");
+  writeFileSync(previous, readFileSync(join(root, "CHANGELOG.md"), "utf8"));
+  assert.equal(run(["notes", "9.9.9", previous]).status, 1, "same changelog as last time: nothing new");
+  writeFileSync(previous, "");
+  const fresh = run(["notes", "9.9.9", previous]);
+  assert.equal(fresh.status, 0);
+  assert.match(fresh.stdout, /^### /, "everything under Unreleased, grouped by heading");
+
+  const workflow = readFileSync(join(root, ".github", "workflows", "publish.yml"), "utf8");
+  assert.match(workflow, /git show "\$last:CHANGELOG\.md" > previous-changelog\.md/);
+  assert.match(workflow, /release\.cjs notes "\$VERSION" previous-changelog\.md/);
+  assert.ok(workflow.indexOf("previous-changelog.md") < workflow.indexOf('git tag -a "v$VERSION"'), "the last tag is read before the new one exists");
+  assert.match(workflow, /--notes-file notes\.md --generate-notes/, "the changelog first, then GitHub's credits and compare link");
 });
