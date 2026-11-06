@@ -125,12 +125,10 @@ test("the real app starts with every extension loaded and runs a prompt through 
   assert.doesNotMatch(stderr, /failed to load|cannot find module|SyntaxError|TypeError/i, "no extension complained while loading");
 });
 
-// KNOWN DEFECT, found by this test. pi 1.5.0's launcher script is dist/bundle/cli.js, a bundle of the
-// whole app, and scripts/pi-build.cjs patches the separate files under dist/ that nothing runs. So the
-// running app still says "inside pi", titles the window like pi, and /bug still uploads the session to
-// pi's developers. The patch tests only read the patched files, so they pass either way.
-// Remove `todo` once the patches reach what actually runs.
-test("the patched pi is the one that runs", { todo: "pi 1.5.0 runs from dist/bundle, which the source patches do not touch" }, () => {
+// pi 1.5.0 starts from dist/bundle/cli.js, a bundle of the whole app, so patching only the separate
+// files under dist/ changed nothing that runs. The patch tests read the patched files; this is the
+// test that proves the patches reach the running app.
+test("the patched pi is the one that runs", () => {
   assert.ok(outcome, "the run above must have finished");
   const system = outcome.requests[0].messages.find((message) => message.role === "system");
   assert.match(String(system?.content), /running inside NusaCode/);

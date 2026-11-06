@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,7 +8,7 @@ import { join } from "node:path";
 
 const require = createRequire(import.meta.url);
 const root = join(import.meta.dirname, "..", "..");
-const { buildPi, isCurrent, replaceOnce } = require(join(root, "scripts", "pi-build.cjs"));
+const { buildPi, bundleFiles, isCurrent, replaceOnce } = require(join(root, "scripts", "pi-build.cjs"));
 const piDir = join(root, "node_modules", "@earendil-works", "pi-coding-agent");
 
 /** One build shared by the tests that only read it. */
@@ -56,6 +57,36 @@ test("/bug opens a GitHub issue and uploads nothing", () => {
 test("/changelog shows NusaCode's changelog and the model is told it runs in NusaCode", () => {
   assert.equal(read("CHANGELOG.md"), readFileSync(join(root, "CHANGELOG.md"), "utf8"));
   assert.match(read("dist/core/system-prompt.js"), /running inside NusaCode, a coding agent harness built on pi/);
+});
+
+/** The bundle file holding `text`; the bundle is what pi actually runs. */
+function bundleWith(text: string): string {
+  const holders = bundleFiles(target)
+    .map((file: string) => read(file))
+    .filter((source: string) => source.includes(text));
+  assert.equal(holders.length, 1, `exactly one bundle file holds ${JSON.stringify(text)}`);
+  return holders[0]!;
+}
+
+test("the bundle pi runs from carries every change too", () => {
+  assert.ok(bundleWith('APP_TITLE=pkg.piConfig?.title||(piConfigName?APP_NAME:"\\u03C0")'));
+  const app = bundleWith("async handleBugCommand(hint)");
+  assert.ok(app.includes("`${APP_TITLE} - ${sessionName}`") && !app.includes("${sessionName} - ${cwdBasename}"), "window title");
+  const start = app.indexOf("async handleBugCommand(hint)");
+  const body = app.slice(start, app.indexOf("async handleCopyCommand(", start));
+  assert.ok(body.includes("github.com/RafiAkem/nusacode/issues/new"), "/bug opens a GitHub issue");
+  assert.ok(!body.includes("reportBug"), "/bug no longer reaches the upload flow");
+  assert.equal(app.split("reportBug(").length - 1, 1, "only the unused definition of reportBug is left");
+  assert.ok(!app.includes("the crash details are attached automatically"));
+  assert.ok(!app.includes("Report a bug to the Pi developers"));
+  assert.ok(app.includes("running inside NusaCode, a coding agent harness built on pi"));
+});
+
+test("a patched bundle still parses", () => {
+  for (const file of bundleFiles(target)) {
+    const result = spawnSync(process.execPath, ["--check", join(target, file)], { encoding: "utf8" });
+    assert.equal(result.status, 0, `${file}: ${result.stderr}`);
+  }
 });
 
 test("the build is current until its inputs change", () => {

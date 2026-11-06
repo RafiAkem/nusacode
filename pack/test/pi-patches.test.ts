@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse } from "yaml";
@@ -14,7 +14,7 @@ const { checkPatches, entryProblem } = require(script);
 const { patches } = require(join(root, "scripts", "pi-build.cjs"));
 const piDir = join(root, "node_modules", "@earendil-works", "pi-coding-agent");
 
-/** Just the files the patches touch, copied from the installed pi, so a test can damage them. */
+/** The files the patches touch (the source files and the bundle), copied from the installed pi, so a test can damage them. */
 function patchedFilesCopy(t: { after(fn: () => void): void }) {
   const dir = mkdtempSync(join(tmpdir(), "nusacode-pi-check-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -22,6 +22,7 @@ function patchedFilesCopy(t: { after(fn: () => void): void }) {
     mkdirSync(dirname(join(dir, file)), { recursive: true });
     cpSync(join(piDir, file), join(dir, file));
   }
+  cpSync(join(piDir, "dist", "bundle"), join(dir, "dist", "bundle"), { recursive: true });
   cpSync(join(piDir, "package.json"), join(dir, "package.json"));
   return dir;
 }
@@ -43,6 +44,17 @@ test("a patch that stops matching is named, and the others are still checked", (
   assert.match(failures[1].error, /pi patch "system prompt" did not match exactly once/);
 });
 
+test("a bundle patch that stops matching is named too", (t) => {
+  const dir = patchedFilesCopy(t);
+  const chunks = join(dir, "dist", "bundle", "chunks");
+  for (const name of readdirSync(chunks)) {
+    const file = join(chunks, name);
+    const text = readFileSync(file, "utf8");
+    if (text.includes("running inside pi")) writeFileSync(file, text.replace("running inside pi", "running inside something else"));
+  }
+  assert.deepEqual(checkPatches(dir), [{ file: "dist/bundle", error: 'pi patch "system prompt" matched no bundle file' }]);
+});
+
 test("a file that pi moved or removed is reported as such", (t) => {
   const dir = patchedFilesCopy(t);
   rmSync(join(dir, "dist/config.js"));
@@ -59,7 +71,9 @@ function startFrom(dir: string, bin: unknown) {
 test("patches that apply but would never be loaded are a failure too", (t) => {
   const dir = patchedFilesCopy(t);
   startFrom(dir, { pi: "dist/bundle/cli.js" });
-  assert.match(entryProblem(dir), /pi starts from dist\/bundle\/cli\.js, a bundle .* never loaded/);
+  assert.equal(entryProblem(dir), null, "the bundle patches cover the bundle");
+  startFrom(dir, { pi: "lib/cli.js" });
+  assert.match(entryProblem(dir), /pi starts from lib\/cli\.js, which neither the source nor the bundle patches cover/);
   startFrom(dir, { pi: "./dist/cli.js" });
   assert.equal(entryProblem(dir), null);
   startFrom(dir, "dist/cli.js");
@@ -68,10 +82,10 @@ test("patches that apply but would never be loaded are a failure too", (t) => {
   assert.match(entryProblem(dir), /names no pi command/);
 });
 
-test("the pinned pi 1.5.0 is reported as patched but not running the patches (the known bundle defect)", () => {
+test("the pinned pi 1.5.0 takes every patch, in the bundle it runs from too", () => {
   const result = spawnSync(process.execPath, [script, piDir], { encoding: "utf8" });
-  assert.equal(result.status, 1);
-  assert.match(result.stdout, /^All \d+ patches apply to pi 1\.5\.0\.\nBut they would have no effect: pi starts from dist\/bundle\/cli\.js/);
+  assert.equal(result.status, 0, result.stdout);
+  assert.match(result.stdout, /^All \d+ patches apply to pi 1\.5\.0\.\n$/);
 });
 
 test("the command line prints a verdict and exits 1 when something no longer applies", (t) => {

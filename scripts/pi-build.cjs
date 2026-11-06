@@ -1,7 +1,8 @@
 "use strict";
 /**
  * Builds NusaCode's own copy of pi: the pinned pi package with a handful of small
- * source patches, so what users see says NusaCode instead of pi.
+ * patches, so what users see says NusaCode instead of pi. Each change is made twice:
+ * in pi's separate source files, and in the bundle that pi actually starts from.
  *
  * Why a copy and not a fork: pi is pinned to one exact version, so a patch list is far
  * less to maintain than a fork, and the tests fail loudly if a patch stops matching.
@@ -99,6 +100,84 @@ const patches = [
   },
 ];
 
+/**
+ * The same changes for the bundle. pi 1.5.0 starts from dist/bundle/cli.js, which holds its own
+ * copy of all the code, so the files above are only what pi's SDK exports and what extensions
+ * import; what the user actually runs is the bundle. Its code is whitespace-minified but keeps
+ * its identifiers and strings, so each patch anchors on text that is stable within a pi version.
+ * Chunk file names carry a content hash, so a patch finds its file by searching every bundle file
+ * for its anchor, and fails unless exactly one file holds it exactly once.
+ */
+const bundlePatches = [
+  {
+    label: "app title",
+    find: 'APP_TITLE=piConfigName?APP_NAME:"\\u03C0"',
+    replace: 'APP_TITLE=pkg.piConfig?.title||(piConfigName?APP_NAME:"\\u03C0")',
+  },
+  { label: "window title", find: "`${APP_TITLE} - ${sessionName} - ${cwdBasename}`", replace: "`${APP_TITLE} - ${sessionName}`" },
+  // The bundled method only calls reportBug(), the flow that uploads the session; it is the only
+  // caller, so replacing the method leaves that flow unreachable.
+  { label: "/bug", between: ["async handleBugCommand(hint){", "async handleCopyCommand("], replace: BUG_COMMAND },
+  { label: "crash hint", find: " Run /bug to report it; the crash details are attached automatically.", replace: " Run /bug to report it." },
+  { label: "crash instructions", find: " run /bug. The crash details are attached automatically.`", replace: " run /bug.`" },
+  { label: "start hint", find: '"start pi and"', replace: '"start nusacode and"' },
+  { label: "bug hint", find: "/bug sends a report to the developers.", replace: "/bug opens a bug report on GitHub." },
+  { label: "/bug description", find: "Report a bug to the Pi developers", replace: "Report a bug to NusaCode on GitHub" },
+  {
+    label: "system prompt",
+    find: "You are a coding assistant running inside pi, a coding agent harness.",
+    replace: "You are a coding assistant running inside NusaCode, a coding agent harness built on pi.",
+  },
+];
+
+const BUNDLE_DIR = path.join("dist", "bundle");
+
+/** Every .js file under the bundle folder, relative to the pi package. */
+function bundleFiles(piDir) {
+  const out = [];
+  const walk = (rel) => {
+    const full = path.join(piDir, rel);
+    if (!fs.existsSync(full)) return;
+    for (const entry of fs.readdirSync(full, { withFileTypes: true })) {
+      const child = path.join(rel, entry.name);
+      if (entry.isDirectory()) walk(child);
+      else if (entry.name.endsWith(".js")) out.push(child);
+    }
+  };
+  walk(BUNDLE_DIR);
+  return out.sort();
+}
+
+/**
+ * Applies the bundle patches to the bundle in `piDir`, in memory. Returns the files that changed
+ * and one failure per patch that no longer matches; it never writes anything.
+ */
+function patchBundle(piDir) {
+  const files = new Map(bundleFiles(piDir).map((file) => [file, fs.readFileSync(path.join(piDir, file), "utf8")]));
+  const changed = new Map();
+  const failures = [];
+  if (files.size === 0) return { changed, failures: [{ label: "bundle", error: `there is no ${BUNDLE_DIR.replace(/\\/g, "/")} folder` }] };
+  for (const patch of bundlePatches) {
+    const anchor = patch.find ?? patch.between[0];
+    const holders = [...files.keys()].filter((file) => (changed.get(file) ?? files.get(file)).includes(anchor));
+    if (holders.length !== 1) {
+      failures.push({ label: patch.label, error: `pi patch "${patch.label}" ${holders.length === 0 ? "matched no bundle file" : `matched ${holders.length} bundle files`}` });
+      continue;
+    }
+    const file = holders[0];
+    const source = changed.get(file) ?? files.get(file);
+    try {
+      const next = patch.find
+        ? replaceOnce(source, patch.find, patch.replace, patch.label)
+        : replaceBetween(source, patch.between[0], patch.between[1], patch.replace, patch.label);
+      changed.set(file, next);
+    } catch (err) {
+      failures.push({ label: patch.label, error: err.message });
+    }
+  }
+  return { changed, failures };
+}
+
 /** Everything that decides what the build contains, so a stale copy is noticed. */
 function stamp(piDir, nusacodeDir) {
   const hash = crypto.createHash("sha256");
@@ -120,6 +199,9 @@ function buildPi({ piDir, nusacodeDir, target }) {
     const full = path.join(target, file);
     fs.writeFileSync(full, apply(fs.readFileSync(full, "utf8")));
   }
+  const bundle = patchBundle(target);
+  if (bundle.failures.length > 0) throw new Error(bundle.failures.map((failure) => failure.error).join("; "));
+  for (const [file, source] of bundle.changed) fs.writeFileSync(path.join(target, file), source);
 
   const manifestPath = path.join(target, "package.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
@@ -144,4 +226,4 @@ function isCurrent({ piDir, nusacodeDir, target }) {
   }
 }
 
-module.exports = { buildPi, isCurrent, patches, replaceOnce, REPO_URL, TITLE };
+module.exports = { buildPi, bundleFiles, bundlePatches, isCurrent, patchBundle, patches, replaceOnce, REPO_URL, TITLE };
