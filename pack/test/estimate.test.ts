@@ -103,6 +103,8 @@ function harness(options: { model?: { provider: string; id: string }; context?: 
     assistant: (...tools: string[]) =>
       handlers.message_end({ message: { role: "assistant", content: tools.map((name) => ({ type: "toolCall", name })) } }, ctx),
     start: () => handlers.session_start({}, ctx),
+    /** A task call's result: finished, or blocked / failed. */
+    finished: (isError = false) => handlers.tool_result({ toolName: "task", isError }, ctx),
   };
 }
 
@@ -180,26 +182,39 @@ test("an unknown context size just leaves the cache part out", async () => {
   assert.doesNotMatch(h.notes[0], /re-read/);
 });
 
-test("a fan-out is priced from the subagents that already ran, and never before there is any evidence", () => {
+test("a fan-out is priced from the subagents that finished, and never before there is any evidence", () => {
   const h = harness();
-  h.assistant("task", "task"); // nothing has run yet
+  h.assistant("task", "task"); // nothing has finished yet
   assert.deepEqual(h.notes, []);
   h.cost(60);
   h.cost(30, "subagent");
   h.cost(999, "main"); // the main agent's own spending is not a subagent's
+  h.finished();
+  h.finished();
   h.assistant("read"); // not a task
   h.assistant("task"); // one on its own: no total needed
   assert.deepEqual(h.notes, []);
-  // 2 + 1 = 3 tasks started so far, 90 spent: Rp 30 each.
+  // 2 finished, Rp 90 spent: Rp 45 each. The lone task above hasn't finished, so it doesn't count.
   h.assistant("task", "task", "task");
   assert.equal(h.notes.length, 1);
-  assert.match(h.notes[0], /Starting 3 subagents at once\. Subagents have cost about Rp 30 each.*around Rp 90 in total/);
+  assert.match(h.notes[0], /Starting 3 subagents at once\. Subagents have cost about Rp 45 each.*around Rp 135 in total/);
+});
+
+test("blocked or failed subagent calls don't drag the average down", () => {
+  const h = harness();
+  h.finished(true); // blocked by plan mode
+  h.finished(true); // blocked by the budget
+  h.finished(true); // unknown agent
+  h.cost(300);
+  h.finished();
+  h.assistant("task", "task", "task", "task");
+  assert.match(h.notes[0], /about Rp 300 each.*around Rp 1\.200 in total/);
 });
 
 test("a new session starts the subagent average over", () => {
   const h = harness();
-  h.assistant("task");
   h.cost(100);
+  h.finished();
   h.start();
   h.assistant("task", "task");
   assert.deepEqual(h.notes, []);

@@ -28,6 +28,7 @@ type Row = { id?: unknown };
 export default function estimate(pi: ExtensionAPI) {
   let prices = new Map<string, Price>();
   let subagentIdr = 0;
+  /** Subagent runs that finished. Blocked, failed and still-running calls don't count: they would make the average too low. */
   let subagentRuns = 0;
 
   pi.events.on(CATALOG_CHANNEL, (rows) => {
@@ -82,6 +83,10 @@ export default function estimate(pi: ExtensionAPI) {
     if (started >= 2 && subagentRuns > 0) {
       ctx.ui.notify(describeFanOut(started, subagentIdr / subagentRuns), "info");
     }
-    subagentRuns += started;
+  });
+
+  pi.on("tool_result", (event) => {
+    if (event.toolName === TASK_TOOL && !event.isError) subagentRuns += 1;
+    return undefined;
   });
 }
