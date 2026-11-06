@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `/plan` (or `alt+m`, or `--plan`) puts the agent in read-only plan mode, and `/plan ask` makes it ask before every file change and command.
+
 ## [0.1.0] - 2026-11-06
 
 First public release.
