@@ -68,7 +68,8 @@ what that cost. The session and its costs are real; only the balance is sample d
 
 | Command | What it does |
 | --- | --- |
-| `/usage` | Show session cost, tokens, cache hit rate, speed and balance |
+| `/usage` | Show session cost, tokens, cache hit rate, speed and balance, plus today's and this month's spending |
+| `/usage history` | Spending per day and per model, to see which model is cheapest for your work. Add `today`, `week`, `month` or `all` |
 | `/topup` | Show your balance and a top-up link |
 | `/budget` | Set a spending limit for the session, or a warning for a single prompt. See [Budget](#budget) |
 | `/model` | Switch model |
@@ -91,6 +92,14 @@ Start a message with `!` to run a shell command, or `!!` to run it without sendi
 | `ctrl+l` | Switch model |
 | `escape` | Interrupt the agent |
 | `ctrl+d` | Exit |
+
+## Spending history
+
+Every response is recorded in `usage.jsonl` in the NusaCode home, so `/usage` can show today's and this month's
+spending across sessions, and `/usage history` can compare models by total cost, cost per request and cache hit rate.
+Only the time, the model name, token counts and the cost are saved, never your messages. Costs stay as they were
+charged, so a later price change doesn't rewrite them. Delete the file to start over; entries older than 400 days
+are dropped when it grows past 2 MB.
 
 ## Budget
 
@@ -226,6 +235,7 @@ Everything lives in `~/.nusacode/`, or wherever `NUSACODE_HOME` points:
 ├── settings.json     your settings
 ├── models.json       provider definition
 ├── budget.json       default spending limits, if you saved any (see Budget)
+├── usage.jsonl       spending history: one line per response, with the model, tokens and cost
 ├── auth.json         API key, if you entered one during setup
 ├── AGENTS.md         global instructions, if imported
 ├── agents/           subagent definitions

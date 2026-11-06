@@ -12,7 +12,9 @@
  * key. No price is hardcoded here.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { agentDir } from "../lib/home.ts";
 import { idr } from "../lib/money.ts";
+import { historyReport, parsePeriod, periodRows, readLog } from "../lib/usage-log.ts";
 
 const MODELS_URL = "https://api.nusagate.com/api/public/models";
 export const BALANCE_URL = "https://api.nusagate.com/v1/balance";
@@ -336,6 +338,12 @@ export default function meter(pi: ExtensionAPI) {
     publishSummary(ctx.model?.provider, ctx.model?.id);
   }
 
+  /** Today and this month across all sessions, from the saved history. */
+  function historyRows(): string[] {
+    const rows = periodRows(readLog(agentDir()), new Date());
+    return rows.length === 0 ? [] : [...rows.map(([label, value]) => row(label, value)), "More: /usage history"];
+  }
+
   function unavailableLine(): string {
     return `Cost unavailable (price fetch failed: ${priceError ?? "unknown"})`;
   }
@@ -348,6 +356,7 @@ export default function meter(pi: ExtensionAPI) {
     if (totals.requests === 0) {
       lines.push("No usage in this session yet.");
       lines.push(prices ? `Prices: ${priceSource} (fetched once at session start)` : unavailableLine());
+      lines.push(...historyRows());
       lines.push(...balanceRows());
       return lines.join("\n");
     }
@@ -384,6 +393,7 @@ export default function meter(pi: ExtensionAPI) {
     } else {
       lines.push(unavailableLine());
     }
+    lines.push(...historyRows());
     lines.push(...balanceRows());
     return lines.join("\n");
   }
@@ -533,8 +543,18 @@ export default function meter(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("usage", {
-    description: "Show the session cost meter (rupiah, tokens, savings)",
-    handler: async (_args, ctx) => {
+    description: "Show the session cost meter (rupiah, tokens, savings). `/usage history` shows spending over time",
+    handler: async (args, ctx) => {
+      const [first, ...rest] = args.trim().split(/\s+/);
+      if (first?.toLowerCase() === "history") {
+        const period = parsePeriod(rest.join(" "));
+        if (period === null) {
+          ctx.ui.notify("Usage: /usage history [today|week|month|all]", "warning");
+          return;
+        }
+        ctx.ui.notify(historyReport(readLog(agentDir()), period, new Date()), "info");
+        return;
+      }
       // Refetch the wallet so the report reflects charges made since startup.
       await refreshBalance(apiKey);
       ctx.ui.notify(report(), "info");
