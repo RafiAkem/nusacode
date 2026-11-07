@@ -82,6 +82,33 @@ test("the bundle pi runs from carries every change too", () => {
   assert.ok(app.includes("running inside NusaCode, a coding agent harness built on pi"));
 });
 
+test("pi's pickers wrap round instead of stopping at the ends, so one held arrow key reaches everything", () => {
+  const components = "dist/modes/interactive/components";
+  for (const [name, list] of [
+    ["extension-selector", "this.options"],
+    ["session-selector", "this.filteredSessions"],
+    ["oauth-selector", "this.filteredProviders"],
+    ["trust-selector", "this.trustOptions"],
+  ]) {
+    const source = read(`${components}/${name}.js`);
+    assert.ok(!source.includes("Math.max(0, this.selectedIndex - 1)"), `${name}: up no longer stops at the top`);
+    assert.ok(source.includes(`this.selectedIndex<${list}.length-1?this.selectedIndex+1:0`), `${name}: down wraps to the top`);
+  }
+  assert.ok(!read(`${components}/first-time-setup.js`).includes("Math.max(0, Math.min("), "the first-run choices wrap");
+
+  const app = bundleWith("this.selectedIndex<this.trustOptions.length-1?this.selectedIndex+1:0");
+  assert.ok(!app.includes("this.selectedIndex=Math.max(0,this.selectedIndex-1)"), "no stopping list left in the bundle");
+  assert.ok(!app.includes("Math.max(0,Math.min(THEME_OPTIONS.length-1"));
+
+  // The expressions themselves: down past the last goes to the first, up past the first to the last.
+  const picker = { selectedIndex: 2, options: ["a", "b", "c"] };
+  const step = (code: string) => new Function(code).call(picker);
+  step("this.selectedIndex=this.selectedIndex<this.options.length-1?this.selectedIndex+1:0");
+  assert.equal(picker.selectedIndex, 0);
+  step("this.selectedIndex=this.selectedIndex>0?this.selectedIndex-1:Math.max(0,this.options.length-1)");
+  assert.equal(picker.selectedIndex, 2);
+});
+
 test("a patched bundle still parses", () => {
   for (const file of bundleFiles(target)) {
     const result = spawnSync(process.execPath, ["--check", join(target, file)], { encoding: "utf8" });

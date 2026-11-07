@@ -11,6 +11,7 @@ import "../lib/setup-wizard.ts";
 import "../lib/splash.ts";
 import "../extensions/setup.ts";
 import "../extensions/language.ts";
+import "../extensions/update.ts";
 import "../extensions/meter.ts";
 import "../lib/usage-log.ts";
 import "../lib/budget.ts";

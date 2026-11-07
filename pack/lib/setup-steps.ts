@@ -620,8 +620,9 @@ class ModelStep implements SetupStep {
     if (this.busy) return;
     const list = this.visible();
     const page = 8;
-    if (matchesKey(data, "up")) this.cursor = Math.max(0, this.cursor - 1);
-    else if (matchesKey(data, "down")) this.cursor = Math.min(list.length - 1, this.cursor + 1);
+    // Up and down wrap round, like every other list, so one held key reaches every model.
+    if (matchesKey(data, "up")) this.cursor = this.cursor > 0 ? this.cursor - 1 : Math.max(0, list.length - 1);
+    else if (matchesKey(data, "down")) this.cursor = this.cursor < list.length - 1 ? this.cursor + 1 : 0;
     else if (matchesKey(data, "pageUp")) this.cursor = Math.max(0, this.cursor - page);
     else if (matchesKey(data, "pageDown")) this.cursor = Math.min(list.length - 1, this.cursor + page);
     else if (matchesKey(data, "escape")) {

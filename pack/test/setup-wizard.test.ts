@@ -381,6 +381,16 @@ test("a long model list scrolls to keep the cursor in view", () => {
   assert.ok(step.render(70, 10).length <= 10);
 });
 
+test("the model list wraps round, so holding one arrow key reaches every model", () => {
+  const h = stepHarness();
+  const many = Array.from({ length: 30 }, (_, i) => ({ id: `m${i}`, name: `Model ${i}` }));
+  const step = modelStep({ skip: () => false, models: () => many, currentId: () => null, select: async () => true, onChosen: () => {} }).create(h.host);
+  step.handleInput("\x1b[A");
+  assert.match(body(step, 70, 10), /❯ Model 29/, "up from the first goes to the last");
+  step.handleInput(DOWN);
+  assert.match(body(step, 70, 10), /❯ Model 0/, "down from the last goes to the first");
+});
+
 test("import picks every source by default, and space unpicks one", () => {
   const h = stepHarness();
   const runs: string[][] = [];
