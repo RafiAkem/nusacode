@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { availableUpdate, CHECK_EVERY_MS, isNewer, readCache, UPDATE_FILE } from "../lib/update-check.ts";
+import { availableUpdate, isNewer, readCache, UPDATE_FILE } from "../lib/update-check.ts";
 
 function dirs(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), "nusacode-update-"));
@@ -46,30 +46,23 @@ test("a newer version on npm is reported and remembered", async (t) => {
   assert.match(r.calls[0]!, /registry\.npmjs\.org\/nusacode\/latest/);
 });
 
-test("npm is asked at most once a day", async (t) => {
+test("npm is asked on every start, so a release shows the next time NusaCode opens", async (t) => {
   const { home, install } = dirs(t);
-  const r = registry("0.1.2");
-  const ask = (now: number) => availableUpdate({ current: "0.1.1", dir: home, installDir: install, now, fetchImpl: r.fetchImpl, env });
-  await ask(1_000);
-  assert.equal(await ask(1_000 + CHECK_EVERY_MS - 1), "0.1.2", "answered from the cache");
-  assert.equal(r.calls.length, 1);
-  await ask(1_000 + CHECK_EVERY_MS);
-  assert.equal(r.calls.length, 2, "asked again after a day");
+  const ask = (version: string) => availableUpdate({ current: "0.1.4", dir: home, installDir: install, now: 1_000, fetchImpl: registry(version).fetchImpl, env });
+  assert.equal(await ask("0.1.4"), null);
+  assert.equal(await ask("0.1.5"), "0.1.5", "a minute later, a new release: no waiting for tomorrow");
+  assert.deepEqual(readCache(home), { checkedAt: 1_000, latest: "0.1.5" });
 });
 
-test("being up to date, offline, or getting junk reports nothing, and offline waits a day too", async (t) => {
+test("being up to date, offline, or getting junk reports nothing", async (t) => {
   const { home, install } = dirs(t);
   assert.equal(await availableUpdate({ current: "0.1.2", dir: home, installDir: install, now: 1, fetchImpl: registry("0.1.2").fetchImpl, env }), null);
 
   const offline = registry(new Error("ENOTFOUND"));
   rmSync(join(home, UPDATE_FILE));
   assert.equal(await availableUpdate({ current: "0.1.1", dir: home, installDir: install, now: 1, fetchImpl: offline.fetchImpl, env }), null);
-  await availableUpdate({ current: "0.1.1", dir: home, installDir: install, now: 2, fetchImpl: offline.fetchImpl, env });
-  assert.equal(offline.calls.length, 1, "a failed check is not retried until tomorrow");
-
-  rmSync(join(home, UPDATE_FILE));
+  assert.equal(readCache(home), null, "a failed check saves nothing");
   assert.equal(await availableUpdate({ current: "0.1.1", dir: home, installDir: install, now: 1, fetchImpl: registry("not-a-version").fetchImpl, env }), null);
-  rmSync(join(home, UPDATE_FILE));
   assert.equal(await availableUpdate({ current: "0.1.1", dir: home, installDir: install, now: 1, fetchImpl: registry("0.1.2", 503).fetchImpl, env }), null);
 });
 
@@ -78,9 +71,10 @@ test("a failed check keeps the last known answer", async (t) => {
   mkdirSync(home, { recursive: true });
   writeFileSync(join(home, UPDATE_FILE), JSON.stringify({ checkedAt: 0, latest: "0.1.5" }));
   const offline = registry(new Error("timeout"));
-  const result = await availableUpdate({ current: "0.1.1", dir: home, installDir: install, now: CHECK_EVERY_MS * 2, fetchImpl: offline.fetchImpl, env });
+  const result = await availableUpdate({ current: "0.1.1", dir: home, installDir: install, now: 5_000, fetchImpl: offline.fetchImpl, env });
   assert.equal(result, "0.1.5");
-  assert.equal(JSON.parse(readFileSync(join(home, UPDATE_FILE), "utf8")).checkedAt, CHECK_EVERY_MS * 2);
+  assert.equal(JSON.parse(readFileSync(join(home, UPDATE_FILE), "utf8")).checkedAt, 0, "the last real answer is kept as it was");
+  assert.equal(await availableUpdate({ current: "0.1.5", dir: home, installDir: install, fetchImpl: offline.fetchImpl, env }), null, "once updated, the old answer is no longer news");
 });
 
 test("no check from a git checkout, or when turned off", async (t) => {
