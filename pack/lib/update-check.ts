@@ -14,7 +14,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { join } from "node:path";
 
 export const UPDATE_FILE = "update-check.json";
-export const UPDATE_COMMAND = "npm install -g nusacode@latest";
+/** What the welcome screen tells people to type: NusaCode updates itself (pack/extensions/update.ts). */
+export const UPDATE_COMMAND = "/update";
 export const CHECK_EVERY_MS = 24 * 60 * 60 * 1000;
 const TIMEOUT_MS = 3_000;
 const REGISTRY_URL = "https://registry.npmjs.org/nusacode/latest";

@@ -61,8 +61,47 @@ const BUG_COMMAND = `    async handleBugCommand(hint) {
     }
 `;
 
+/**
+ * Lists that stop at the first and last item instead of wrapping round, like pi's other lists do.
+ * Wrapping means every item can be reached with one arrow key held down (someone with a broken
+ * down arrow can still pick anything). `list` is the array the cursor moves through.
+ */
+const STOPPING_LISTS = [
+  { file: "dist/modes/interactive/components/extension-selector.js", list: "this.options", middle: ',this.updateList();else if(kb.matches(keyData,"tui.select.down")||keyData==="j")' },
+  { file: "dist/modes/interactive/components/session-selector.js", list: "this.filteredSessions", middle: ';else if(kb.matches(keyData,"tui.select.down"))' },
+  {
+    file: "dist/modes/interactive/components/oauth-selector.js",
+    list: "this.filteredProviders",
+    middle: ',this.updateList()}else if(kb.matches(keyData,"tui.select.down")){if(this.filteredProviders.length===0)return;',
+  },
+  { file: "dist/modes/interactive/components/trust-selector.js", list: "this.trustOptions", middle: ',this.updateList();else if(kb.matches(keyData,"tui.select.down")||keyData==="j")' },
+];
+const stepUp = (list) => `this.selectedIndex=this.selectedIndex>0?this.selectedIndex-1:Math.max(0,${list}.length-1)`;
+const stepDown = (list) => `this.selectedIndex=this.selectedIndex<${list}.length-1?this.selectedIndex+1:0`;
+// pi's first-run screen moves through its theme and analytics choices with one helper.
+const STOPPING_CHOICES = [
+  { options: "THEME_OPTIONS", index: "this.themeIndex" },
+  { options: "ANALYTICS_OPTIONS", index: "this.analyticsIndex" },
+];
+const wrapChoice = ({ options, index }) => `((${index}+delta)%${options}.length+${options}.length)%${options}.length`;
+
 /** The source patches: file (relative to the pi package) and how to change it. */
 const patches = [
+  ...STOPPING_LISTS.map(({ file, list }) => ({
+    file,
+    apply: (s) => {
+      s = replaceOnce(s, "this.selectedIndex = Math.max(0, this.selectedIndex - 1);", `${stepUp(list)};`, `${path.basename(file)} up`);
+      return replaceOnce(s, `this.selectedIndex = Math.min(${list}.length - 1, this.selectedIndex + 1);`, `${stepDown(list)};`, `${path.basename(file)} down`);
+    },
+  })),
+  {
+    file: "dist/modes/interactive/components/first-time-setup.js",
+    apply: (s) =>
+      STOPPING_CHOICES.reduce(
+        (out, choice) => replaceOnce(out, `Math.max(0, Math.min(${choice.options}.length - 1, ${choice.index} + delta))`, wrapChoice(choice), `first-run ${choice.options}`),
+        s,
+      ),
+  },
   {
     file: "dist/config.js",
     apply: (s) =>
@@ -128,6 +167,17 @@ const bundlePatches = [
     find: "You are a coding assistant running inside pi, a coding agent harness.",
     replace: "You are a coding assistant running inside NusaCode, a coding agent harness built on pi.",
   },
+  // The up and down handlers together, which is what makes each list's anchor unique.
+  ...STOPPING_LISTS.map(({ file, list, middle }) => ({
+    label: `${path.basename(file, ".js")} wraps`,
+    find: `this.selectedIndex=Math.max(0,this.selectedIndex-1)${middle}this.selectedIndex=Math.min(${list}.length-1,this.selectedIndex+1)`,
+    replace: `${stepUp(list)}${middle}${stepDown(list)}`,
+  })),
+  ...STOPPING_CHOICES.map((choice) => ({
+    label: `first-run ${choice.options} wraps`,
+    find: `Math.max(0,Math.min(${choice.options}.length-1,${choice.index}+delta))`,
+    replace: wrapChoice(choice),
+  })),
 ];
 
 const BUNDLE_DIR = path.join("dist", "bundle");

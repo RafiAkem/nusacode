@@ -4,6 +4,7 @@
 
 ### Added
 - The welcome screen says when a newer NusaCode is on npm, with the command to update. It asks npm at most once a day, never delays startup, and stays quiet offline or with `NUSACODE_NO_UPDATE_CHECK=1`.
+- `nusacode update` installs the newest NusaCode itself, with the package manager it was installed with (npm, pnpm, bun or yarn), instead of printing the npm command. Inside NusaCode, `/update` closes it, updates, and reopens the same session; the welcome screen's update notice points to it.
 - NusaCode's screens can be shown in Bahasa Indonesia: pick it in `/setup` or with `/language`. English stays the default. It covers NusaCode's own text (setup, welcome screen, footer, `/usage` and the other NusaCode commands); pi's built-in screens and what the agent replies in are unchanged.
 - Models that take images are marked `(vision)` in `/model`. A `model-capabilities.json` in the NusaCode home sets vision, maximum output and context window per model.
 - `/budget` sets a spending limit for the session, with a warning at 80% and a stop at 100%, and a warning for any single prompt that costs too much. `--default` keeps a limit for new sessions.
@@ -21,6 +22,7 @@
 ### Fixed
 - `/bug` uploaded the session to pi's developers, the model was told it was running inside pi, and the window title said pi. NusaCode's changes to pi reached only files that pi 1.5.0 no longer runs; they now also reach the bundle it starts from. `/bug` opens a GitHub issue and uploads nothing.
 - The welcome screen showed v0.1.0 whatever version was installed.
+- Lists that stopped at the first or last item now wrap round, like the rest: the `/setup` model list, and pi's pickers behind `/resume`, login, the folder trust prompt and every NusaCode command that asks you to choose. Holding one arrow key now reaches every item.
 
 ## [0.1.0] - 2026-11-06
 

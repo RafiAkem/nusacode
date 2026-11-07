@@ -10,15 +10,21 @@ const path = require("node:path");
 
 const root = path.join(__dirname, "..");
 
-// pi updates a global pi, not the copy this package pins, so it can't update NusaCode.
-if (process.argv[2] === "update") {
-  if (fs.existsSync(path.join(root, ".git"))) {
-    console.log("NusaCode is running from a checkout. To update it, run this in the repo:\n\n  git pull && npm install\n");
-  } else {
-    console.log("To update NusaCode, run:\n\n  npm install -g nusacode@latest\n");
-  }
-  console.log('To send "update" to the agent as a prompt, add more words in quotes: nusacode "update the readme"');
-  process.exit(0);
+const selfUpdate = require("./self-update.js");
+
+// pi's own updater installs a global pi, not the copy this package pins, so NusaCode has its own.
+if (process.argv.length === 3 && process.argv[2] === "update") {
+  selfUpdate.selfUpdate({ root }).then(
+    (result) => {
+      if (result === "updated") console.log("Run nusacode to start it.");
+      process.exitCode = result === "failed" ? 1 : 0;
+    },
+    (err) => {
+      console.error(`nusacode: ${err.message}`);
+      process.exitCode = 1;
+    },
+  );
+  return;
 }
 
 // --version names both halves: this package and the pi it runs on, which matters when
@@ -135,6 +141,9 @@ const args = process.argv.slice(2);
 // would reach the model as a prompt, and the agent would act on them.
 const PI_COMMANDS = new Set(["install", "remove", "uninstall", "list", "config", "auth", "mcp"]);
 const flags = PI_COMMANDS.has(args[0]) ? [] : ["--session-dir", sessionDir, ...(pack ? ["-e", pack] : [])];
+// A request left over from a session that crashed before it could be acted on is stale.
+selfUpdate.takeRequest(home);
+
 const child = spawn(process.execPath, [piCli(), ...flags, ...args], {
   stdio: "inherit",
   // The notice says "pi update", which doesn't apply: this package pins its pi version.
@@ -146,6 +155,8 @@ const child = spawn(process.execPath, [piCli(), ...flags, ...args], {
     PI_SKIP_VERSION_CHECK: "1",
     // pi pings its own servers about installs and tags requests as coming from pi.
     PI_TELEMETRY: "0",
+    // Tells /update that this launcher will act on its request.
+    NUSACODE_LAUNCHER: "1",
   },
 });
 
@@ -155,4 +166,27 @@ child.on("error", (err) => {
 });
 child.on("exit", (code, signal) => {
   process.exitCode = code === null ? (signal ? 1 : 0) : code;
+  // /update quit pi so its files can be replaced: update now, then reopen the same session.
+  if (selfUpdate.takeRequest(home)) updateAndReopen();
 });
+
+async function updateAndReopen() {
+  const result = await selfUpdate.selfUpdate({ root }).catch((err) => {
+    console.error(`nusacode: ${err.message}`);
+    return "failed";
+  });
+  const launcher = path.join(root, "bin", "nusacode.js");
+  // pnpm and bun install each version in its own folder, so the old path may be gone.
+  if (result === "failed" || !fs.existsSync(launcher)) {
+    if (result !== "failed") console.log("Run nusacode --continue to pick up where you left off.");
+    process.exitCode = result === "failed" ? 1 : 0;
+    return;
+  }
+  console.log("");
+  // A fresh process, so the new version's code is what runs.
+  const next = spawn(process.execPath, [launcher, "--continue"], { stdio: "inherit" });
+  next.on("error", () => console.log("Run nusacode --continue to pick up where you left off."));
+  next.on("exit", (code) => {
+    process.exitCode = code ?? 0;
+  });
+}

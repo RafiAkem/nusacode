@@ -35,7 +35,7 @@ nusacode
 The first run asks for your API key and offers to import skills from other coding agents. Then just
 type what you want done.
 
-To try it without installing, run `npx nusacode`. To update, run `npm install -g nusacode@latest`.
+To try it without installing, run `npx nusacode`. To update, run `nusacode update`, or type `/update` inside NusaCode: it closes, updates, and reopens your session.
 To run from source instead, see [Contributing](#contributing).
 
 If npm warns that it skipped install scripts for `@google/genai` and `protobufjs`, you can ignore it:
@@ -77,6 +77,7 @@ what that cost. The session and its costs are real; only the balance is sample d
 | `/skills` | List learned skills, and the ones waiting for your approval. `/skills review` goes through them, and `/skills delete <name>` removes one |
 | `/import-config` | Import skills and instructions from other coding agents |
 | `/setup` | Run first-time setup again: language, API key, default model, import |
+| `/update` | Update NusaCode to the newest version, then reopen this session |
 | `/language` | Switch NusaCode's screens between English and Bahasa Indonesia. `/language id` or `/language en` sets it directly |
 | `/sessions` | Switch session in one step; add words to filter, or `all` to search every folder |
 | `/resume` | Continue an earlier session |
@@ -371,7 +372,7 @@ fullscreen mode, with its in-app scrollbar and search, set `"tuiMode": "fullscre
 ### pi commands
 
 pi's `install`, `remove`, `list`, `config`, `auth` and `mcp` commands work through `nusacode` and use the NusaCode
-home. `nusacode update` prints the update steps instead of running pi's updater, which would install a separate
+home. `nusacode update` updates NusaCode itself instead of running pi's updater, which would install a separate
 global pi rather than the version this package pins. `nusacode --version` prints both versions, for example `nusacode 0.1.0 (pi 1.5.0)`.
 
 ## Contributing
