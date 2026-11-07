@@ -173,12 +173,49 @@ export function openExternally(path: string): void {
 const MAX_SIDE = 2000;
 const MAX_BYTES = 4 * 1024 * 1024;
 
-/** The file as the model should receive it: shrunk when it is very large. */
+/** NusaGate refuses images smaller than this many pixels (width × height) with `image_too_small`. */
+export const MIN_PIXELS = 512;
+/** Only a small file can be a tiny image, so bigger ones are never decoded just to check. */
+const TINY_FILE_BYTES = 64 * 1024;
+
+/** How many times to enlarge a `width`×`height` image so it has at least MIN_PIXELS; 1 when it already does. */
+export function upscaleFactor(width: number, height: number): number {
+  if (width <= 0 || height <= 0 || width * height >= MIN_PIXELS) return 1;
+  return Math.ceil(Math.sqrt(MIN_PIXELS / (width * height)));
+}
+
+/** A tiny image enlarged with nearest-neighbour, so its pixels stay sharp; null when it needs nothing. */
+function enlargeTiny(lib: Photon, raw: Buffer): { data: string; mimeType: string } | null {
+  let image;
+  try {
+    image = lib.PhotonImage.new_from_byteslice(new Uint8Array(raw));
+  } catch {
+    return null; // Not something photon reads: send it as it is.
+  }
+  try {
+    const factor = upscaleFactor(image.get_width(), image.get_height());
+    if (factor === 1) return null;
+    const big = lib.resize(image, image.get_width() * factor, image.get_height() * factor, lib.SamplingFilter.Nearest);
+    try {
+      return { data: Buffer.from(big.get_bytes()).toString("base64"), mimeType: "image/png" };
+    } finally {
+      big.free();
+    }
+  } finally {
+    image.free();
+  }
+}
+
+/** The file as the model should receive it: shrunk when it is very large, enlarged when it is tiny. */
 export function readForModel(path: string): { data: string; mimeType: string } {
   const file = expandHome(path);
   const raw = readFileSync(file);
   const mimeType = mimeFor(file);
   const lib = loadPhoton();
+  if (lib && raw.length <= TINY_FILE_BYTES) {
+    const enlarged = enlargeTiny(lib, raw);
+    if (enlarged) return enlarged;
+  }
   if (!lib || raw.length <= MAX_BYTES) return { data: raw.toString("base64"), mimeType };
   const image = lib.PhotonImage.new_from_byteslice(new Uint8Array(raw));
   try {

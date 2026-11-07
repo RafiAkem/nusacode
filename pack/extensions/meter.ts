@@ -2,13 +2,15 @@
  * NusaCode cost meter.
  *
  * Token counts come from the provider response (the assistant message `usage`
- * that pi normalizes from the upstream `usage` object). Rupiah prices are
- * fetched once per session from NusaGate's public model catalog and applied
- * per response with the same formula the gateway uses to bill (per-request
- * ceil), so the meter tracks the invoice instead of an estimate.
+ * that pi normalizes from the upstream `usage` object). Each NusaGate response
+ * also says what it was billed, `usage.cost_idr`, and that is the cost the meter
+ * counts. pi drops that field when it normalizes usage, so it is read from the raw
+ * stream (`provider_stream_event`).
  *
- * NusaGate returns no cost field in chat responses, so cost = tokens x fetched
- * price. Balance comes from `GET /v1/balance`, authenticated with the same API
+ * Rupiah prices are fetched once per session from NusaGate's public model catalog.
+ * They price what carries no billed amount (subagents, which run in their own
+ * process) with the gateway's own formula (per-request ceil), and give the list-price
+ * comparison. Balance comes from `GET /v1/balance`, authenticated with the same API
  * key. No price is hardcoded here.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -258,7 +260,17 @@ export function parsePrice(row: unknown): Price | null {
   };
 }
 
-/** Same arithmetic as the gateway's computeCost(): whole rupiah, rounded up per request. */
+/**
+ * What NusaGate billed for a response: `usage.cost_idr` on the final chunk of the stream.
+ * Null for any other chunk, or a value that isn't a sensible amount.
+ */
+export function billedCost(chunk: unknown): number | null {
+  const usage = asRecord(asRecord(chunk)?.usage);
+  const cost = usage?.cost_idr;
+  return typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : null;
+}
+
+/** Same arithmetic as the gateway's computeCost(): whole rupiah, rounded up per request. Used when a response carries no billed cost. */
 function billIdr(price: Price, fresh: number, cached: number, output: number): number {
   const raw =
     (fresh / 1_000_000) * price.inputPer1M +
@@ -339,6 +351,8 @@ export default function meter(pi: ExtensionAPI) {
   let lastSpeed: number | null = null;
   let speedTokens = 0;
   let speedMs = 0;
+  /** What NusaGate billed for the response being streamed, once its final chunk arrives. */
+  let billedIdr: number | null = null;
 
   /** Best-effort wallet refresh; failures keep the last known balance. */
   async function refreshBalance(key: string | undefined): Promise<void> {
@@ -542,9 +556,9 @@ export default function meter(pi: ExtensionAPI) {
   }
 
   /** Folds one provider response into the session totals, and publishes it. */
-  function account(provider: string, model: string, usage: UsageCounts, source: CostEvent["source"]): void {
+  function account(provider: string, model: string, usage: UsageCounts, source: CostEvent["source"], billed: number | null = null): void {
     const before = totals.costIdr;
-    const priced = fold(provider, model, usage);
+    const priced = fold(provider, model, usage, billed);
     pi.events.emit(COST_CHANNEL, {
       provider,
       model,
@@ -558,8 +572,11 @@ export default function meter(pi: ExtensionAPI) {
     } satisfies CostEvent);
   }
 
-  /** Adds one response to the totals; false when its model has no price. */
-  function fold(provider: string, model: string, usage: UsageCounts): boolean {
+  /**
+   * Adds one response to the totals; false when its model has no price. `billed` is what
+   * NusaGate charged, which wins over the estimate from the price list.
+   */
+  function fold(provider: string, model: string, usage: UsageCounts, billed: number | null): boolean {
     const fresh = usage.input + usage.cacheWrite;
     const cached = usage.cacheRead;
     totals.requests += 1;
@@ -568,11 +585,13 @@ export default function meter(pi: ExtensionAPI) {
     totals.output += usage.output;
     modelsUsed.add(`${provider}/${model}`);
     const price = provider === PROVIDER ? prices?.get(model) : undefined;
+    if (billed !== null) totals.costIdr += billed;
     if (!price) {
+      if (billed !== null) return true;
       totals.unpriced += 1;
       return false;
     }
-    totals.costIdr += billIdr(price, fresh, cached, usage.output);
+    if (billed === null) totals.costIdr += billIdr(price, fresh, cached, usage.output);
     // Cached tokens are left out on both sides: the catalog has no official cache
     // price, and charging them at the full input rate would overstate the saving.
     if (price.officialInputPer1M !== null && price.officialOutputPer1M !== null) {
@@ -590,10 +609,26 @@ export default function meter(pi: ExtensionAPI) {
     lastCtx = ctx;
     const message = event.message;
     if (message.role !== "assistant" || !message.usage) return;
-    account(message.provider, message.model, message.usage, "main");
+    const billed = message.provider === PROVIDER ? billedIdr : null;
+    billedIdr = null;
+    account(message.provider, message.model, message.usage, "main", billed);
     if (firstChunkAt !== null) recordSpeed(message.usage.output, Date.now() - firstChunkAt);
     firstChunkAt = null;
     refreshStatus(ctx);
+  });
+
+  // A new request starts with nothing billed yet, so a failed one can't lend its cost to the next.
+  pi.on("before_provider_request", () => {
+    billedIdr = null;
+    return undefined;
+  });
+
+  // pi keeps only token counts from a response's usage, so the billed amount is read from the
+  // raw stream: the final chunk carries usage.cost_idr.
+  pi.on("provider_stream_event", (event) => {
+    if (event.provider !== PROVIDER) return;
+    const cost = billedCost(event.data);
+    if (cost !== null) billedIdr = cost;
   });
 
   // Speed is timed from the first streamed chunk, so waiting on the model to
