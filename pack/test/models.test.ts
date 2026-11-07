@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { CATALOG_CHANNEL } from "../extensions/meter.ts";
-import models, { parseCatalog } from "../extensions/models.ts";
+import models, { parseCatalog, withoutReasoningEffort } from "../extensions/models.ts";
 
 type Registered = { models: { id: string; name: string; contextWindow: number; maxTokens: number }[]; baseUrl: string };
 
@@ -22,7 +22,11 @@ function load(t: { after(fn: () => void): void }, cache?: unknown) {
   if (cache !== undefined) writeFileSync(join(dir, "nusagate-models.json"), JSON.stringify(cache));
   const registered: Registered[] = [];
   let publish: (rows: unknown) => void = () => {};
+  const handlers: Record<string, (event: unknown, ctx: unknown) => unknown> = {};
   models({
+    on: (name: string, fn: (event: unknown, ctx: unknown) => unknown) => {
+      handlers[name] = fn;
+    },
     registerProvider: (name: string, config: Registered) => {
       assert.equal(name, "nusagate");
       registered.push(config);
@@ -33,7 +37,7 @@ function load(t: { after(fn: () => void): void }, cache?: unknown) {
       },
     },
   } as unknown as ExtensionAPI);
-  return { dir, registered, publish };
+  return { dir, registered, publish, handlers };
 }
 
 const row = (id: string, displayName = id, contextLength = 1000) => ({ id, displayName, contextLength, pricing: {} });
@@ -82,12 +86,43 @@ test("a corrupt cache falls back quietly", (t) => {
   assert.equal(registered.length, 0);
 });
 
-test("DeepSeek models are registered as reasoning models and the rest are not", (t) => {
-  const { registered } = load(t, { models: [row("deepseek-v4.1-flash"), row("kimi-k3")] });
+test("DeepSeek models get pi's thinking switch, never reasoning_effort, and the rest reason without one", (t) => {
+  const { registered } = load(t, { models: [row("deepseek-v4.1-flash"), { ...row("deepseek-v9-chat"), reasoning: false }, { ...row("kimi-k3"), reasoning: true }] });
   const byId = Object.fromEntries(registered[0].models.map((model) => [model.id, model as Record<string, unknown>]));
   assert.equal(byId["deepseek-v4.1-flash"].reasoning, true);
-  assert.deepEqual(byId["deepseek-v4.1-flash"].compat, { thinkingFormat: "deepseek", supportsReasoningEffort: true });
-  assert.equal(byId["kimi-k3"].reasoning, false);
+  assert.deepEqual(byId["deepseek-v4.1-flash"].compat, { thinkingFormat: "deepseek", supportsReasoningEffort: false });
+  assert.equal(byId["deepseek-v9-chat"].reasoning, false, "the catalog saying it doesn't reason wins");
+  assert.equal(byId["kimi-k3"].reasoning, false, "reasons at the gateway by default; a thinking level would change nothing");
+});
+
+test("the catalog's reasoning flag is read and cached", (t) => {
+  assert.deepEqual(parseCatalog([{ id: "a", reasoning: true }, { id: "b", reasoning: false }, { id: "c", reasoning: "yes" }]).map((m) => [m.id, m.reasoning]), [
+    ["a", true],
+    ["b", false],
+    ["c", undefined],
+  ]);
+  const { dir, publish } = load(t);
+  publish([{ ...row("a"), reasoning: true, input_modalities: ["text", "image"] }]);
+  const cached = parseCatalog(JSON.parse(readFileSync(join(dir, "nusagate-models.json"), "utf8")).models);
+  assert.deepEqual(cached, [{ id: "a", name: "a", contextWindow: 1000, vision: true, reasoning: true }]);
+});
+
+test("reasoning_effort is taken out of every NusaGate request, even when an old models.json asks for it", (t) => {
+  const { handlers } = load(t);
+  const send = (provider: string, payload: unknown) => handlers.before_provider_request({ type: "before_provider_request", payload }, { model: { provider } });
+  assert.deepEqual(send("nusagate", { model: "deepseek-v4.1-flash", reasoning_effort: "high", thinking: { type: "enabled" } }), {
+    model: "deepseek-v4.1-flash",
+    thinking: { type: "enabled" },
+  });
+  assert.equal(send("nusagate", { model: "kimi-k3" }), undefined, "nothing to take out: the payload is left alone");
+  assert.equal(send("openai", { model: "gpt", reasoning_effort: "high" }), undefined, "other providers are not NusaGate's rules");
+  assert.equal(withoutReasoningEffort(null), null);
+  assert.equal(withoutReasoningEffort("text"), null);
+});
+
+test("the shipped models.json doesn't ask for reasoning_effort either", () => {
+  const shipped = readFileSync(join(import.meta.dirname, "..", "..", "config", "models.json"), "utf8");
+  assert.ok(!shipped.includes('"supportsReasoningEffort": true'));
 });
 
 test("the user's capabilities file sets vision and output limits, and /model marks vision models", (t) => {
@@ -107,6 +142,7 @@ test("the user's capabilities file sets vision and output limits, and /model mar
   const registered: { models: Record<string, unknown>[] }[] = [];
   models({
     registerProvider: (_name: string, config: { models: Record<string, unknown>[] }) => registered.push(config),
+    on: () => {},
     events: { on: () => {} },
   } as unknown as ExtensionAPI);
   const byId = Object.fromEntries(registered[0].models.map((model) => [model.id, model]));

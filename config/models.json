@@ -9,7 +9,7 @@
           "id": "deepseek-v4.1-flash",
           "reasoning": true,
           "input": ["text", "image"],
-          "compat": { "thinkingFormat": "deepseek", "supportsReasoningEffort": true },
+          "compat": { "thinkingFormat": "deepseek", "supportsReasoningEffort": false },
           "contextWindow": 1048576,
           "maxTokens": 16384
         }

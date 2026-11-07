@@ -172,9 +172,10 @@ another prompt.
 
 <br>
 
-Token counts come from the provider's response, and rupiah prices are fetched once per session from
-NusaGate's public catalog. No price is hardcoded. Each response uses the gateway's billing formula: input
-rate + output rate + cache hits (a percentage of the input rate), rounded up per request.
+Each response's cost is what NusaGate billed for it, which the gateway sends with the response. Subagents run in
+their own process, so their responses are priced from NusaGate's public catalog instead (fetched once per session,
+nothing hardcoded) with the gateway's billing formula: input rate + output rate + cache hits (a percentage of the
+input rate), rounded up per request.
 
 The status bar always shows a summary, and `/usage` shows the full report. Speed (tok/s) is output tokens
 divided by the time from the first streamed chunk to the end of the response, so waiting for the model to
@@ -281,12 +282,15 @@ once, and each times out after 10 minutes.
 <br>
 
 The `/model` list comes from NusaGate's catalog and is cached in `nusagate-models.json`, so a saved model still
-resolves at startup before the network finishes. The catalog has no capability fields, so every model currently
-uses the same limits: text input and 16,384 output tokens. DeepSeek models are registered as reasoning models, so `/thinking` works on them; other models have no thinking levels.
+resolves at startup before the network finishes. Models that take images are marked `(vision)` in `/model`, as the
+catalog says: every model on NusaGate except DeepSeek V4 Pro, GLM 5.3, Qwen 3.8 27B and Qwen 3.8 Max.
 
-The catalog doesn't say which models can see images or how long a reply may be, and NusaCode only lists what it has
-checked. Models that take images are marked `(vision)` in `/model`: every model on NusaGate except DeepSeek V4 Pro, GLM 5.3,
-Qwen 3.8 27B and Qwen 3.8 Max, checked by sending each one a test image through the gateway. If you know more about a model, say so in
+Reasoning models think by default at the gateway. On DeepSeek models `/thinking` turns it on and off; other models
+have no thinking levels, because NusaGate has no setting for how hard they think. Replies can be up to 16,384 tokens
+unless a model is known to allow more.
+
+An image smaller than 512 pixels in total (such as 16×16) is enlarged before it is sent, because the gateway refuses
+smaller ones. If you know more about a model, say so in
 `model-capabilities.json` in the NusaCode home, by model id or by a prefix ending in `*`. An exact id wins over a
 prefix, and your file wins over NusaCode's own list:
 

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import meter, { COST_CHANNEL, SUMMARY_CHANNEL, type CostEvent, type SummaryRow } from "../extensions/meter.ts";
+import meter, { COST_CHANNEL, SUMMARY_CHANNEL, type CostEvent, type SummaryRow, billedCost } from "../extensions/meter.ts";
 import { LOG_FILE, appendRecord } from "../lib/usage-log.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -75,6 +75,9 @@ function harness() {
     summaries,
     costEvents,
     start: () => handlers.session_start({}, ctx),
+    /** A raw chunk from the provider's stream, as pi hands it to provider_stream_event. */
+    chunk: (data: unknown, provider = "nusagate") => handlers.provider_stream_event({ type: "provider_stream_event", provider, data }, ctx),
+    request: () => handlers.before_provider_request({ type: "before_provider_request", payload: {} }, ctx),
     respond: (model: string, usage: Usage) =>
       handlers.message_end(
         { message: { role: "assistant", provider: "nusagate", model, usage: { cacheRead: 0, cacheWrite: 0, ...usage } } },
@@ -470,4 +473,58 @@ test("/usage adds today and this month from the saved history, and /usage histor
   assert.ok((await h.usage("history week")).includes("By model, the last 7 days"));
   assert.ok((await h.usage("history decade")).includes("Usage: /usage history"));
   rmSync(join(home, LOG_FILE));
+});
+
+test("what NusaGate billed (usage.cost_idr) is the cost, instead of the estimate", async (t) => {
+  restoreFetch(t);
+  stubFetch(catalog(priceRow("test-model", { inputPer1M: 3000, outputPer1M: 6000 })));
+  const h = harness();
+  await h.start();
+  // The estimate would be Rp 3 (1000 input tokens); the gateway billed Rp 7.
+  h.request();
+  h.chunk({ choices: [], usage: { prompt_tokens: 1000, completion_tokens: 0, cost_idr: 7 } });
+  h.respond("test-model", { input: 1000, output: 0 });
+  assert.equal(h.costEvents.at(-1)!.costIdr, 7);
+  // The next response has no billed amount, so it falls back to the estimate.
+  h.request();
+  h.respond("test-model", { input: 1000, output: 0 });
+  assert.equal(h.costEvents.at(-1)!.costIdr, 3);
+  assert.equal(costLine(await h.report()), "Session cost Rp 10");
+});
+
+test("a billed cost counts even for a model missing from the price list", async (t) => {
+  restoreFetch(t);
+  stubFetch(catalog());
+  const h = harness();
+  await h.start();
+  h.request();
+  h.chunk({ usage: { cost_idr: 12 } });
+  h.respond("brand-new-model", { input: 10, output: 10 });
+  assert.equal(h.costEvents.at(-1)!.costIdr, 12);
+  assert.equal(h.costEvents.at(-1)!.unpriced, false);
+});
+
+test("a billed cost from a failed request, or another provider, is never used", async (t) => {
+  restoreFetch(t);
+  stubFetch(catalog(priceRow("test-model", { inputPer1M: 3000, outputPer1M: 6000 })));
+  const h = harness();
+  await h.start();
+  h.request();
+  h.chunk({ usage: { cost_idr: 99 } });
+  h.request(); // a retry: the first request never finished
+  h.respond("test-model", { input: 1000, output: 0 });
+  assert.equal(h.costEvents.at(-1)!.costIdr, 3);
+  h.request();
+  h.chunk({ usage: { cost_idr: 50 } }, "openai");
+  h.respond("test-model", { input: 1000, output: 0 });
+  assert.equal(h.costEvents.at(-1)!.costIdr, 3);
+});
+
+test("billedCost reads usage.cost_idr and nothing else", () => {
+  assert.equal(billedCost({ usage: { cost_idr: 1 } }), 1);
+  assert.equal(billedCost({ usage: { cost_idr: 0 } }), 0);
+  assert.equal(billedCost({ usage: { cost: 0.00001 } }), null, "the dollar cost is not the rupiah bill");
+  for (const bad of [{ usage: { cost_idr: -1 } }, { usage: { cost_idr: "5" } }, { usage: { cost_idr: Number.NaN } }, { choices: [] }, null, "x"]) {
+    assert.equal(billedCost(bad), null);
+  }
 });

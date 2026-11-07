@@ -6,14 +6,16 @@
  * cache file while this extension loads, and refreshed from the catalog that
  * meter.ts fetches each session. With no cache yet, models.json is the fallback.
  *
- * The catalog has no capability fields yet (a vision flag is read if one appears), so
- * what a model can take and give comes from lib/model-capabilities.ts: facts checked
- * against the gateway, plus the user's model-capabilities.json.
- * Without an entry a model gets the models.json defaults: text input, 16384 output
- * tokens. Models that take images are marked "(vision)" in /model. DeepSeek models are the
- * ones verified to answer with `reasoning_content` and accept the gateway's
- * `thinking` / `reasoning_effort` parameters, so they alone are registered as
- * reasoning models. Rupiah costs stay in meter.ts, so pi's dollar cost stays zero.
+ * The catalog says which models take images (`input_modalities`) and which reason
+ * (`reasoning`); lib/model-capabilities.ts fills in what it doesn't say, and the user's
+ * model-capabilities.json overrides both. Models that take images are marked "(vision)" in /model.
+ *
+ * Reasoning is on by default at the gateway, and NusaGate asks clients not to send
+ * `reasoning_effort`: it behaves differently from model to model. So it is never sent, even
+ * when an older models.json asks for it. Only DeepSeek models are registered as reasoning
+ * models in pi, because only they are verified to take the `thinking` switch that pi's
+ * thinking level turns on and off; for any other model that level would change nothing.
+ * Rupiah costs stay in meter.ts, so pi's dollar cost stays zero.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,10 +28,10 @@ const PROVIDER = "nusagate";
 const BASE_URL = "https://api.nusagate.com/v1";
 const CACHE_FILE = "nusagate-models.json";
 const DEFAULT_CONTEXT_WINDOW = 128_000;
-/** Reasoning models on the gateway: they take `thinking` and return `reasoning_content`. */
-const REASONING = /^deepseek-/;
+/** Models verified to take the gateway's `thinking` switch, so pi's thinking level works on them. */
+const THINKING_SWITCH = /^deepseek-/;
 
-export type CatalogModel = { id: string; name: string; contextWindow: number; vision?: boolean };
+export type CatalogModel = { id: string; name: string; contextWindow: number; vision?: boolean; reasoning?: boolean };
 
 /**
  * Whether a catalog row says the model takes images. The catalog has no such field
@@ -57,7 +59,8 @@ export function parseCatalog(rows: unknown): CatalogModel[] {
     const context = entry.contextLength;
     const contextWindow = typeof context === "number" && context > 0 ? context : DEFAULT_CONTEXT_WINDOW;
     const vision = catalogVision(entry);
-    return [vision === undefined ? { id: entry.id, name, contextWindow } : { id: entry.id, name, contextWindow, vision }];
+    const reasoning = typeof entry.reasoning === "boolean" ? entry.reasoning : undefined;
+    return [{ id: entry.id, name, contextWindow, ...(vision === undefined ? {} : { vision }), ...(reasoning === undefined ? {} : { reasoning }) }];
   });
 }
 
@@ -77,14 +80,30 @@ function writeCache(dir: string, models: CatalogModel[]): void {
   mkdirSync(dir, { recursive: true });
   const target = join(dir, CACHE_FILE);
   const temp = `${target}.tmp`;
-  const rows = models.map(({ id, name, contextWindow, vision }) => ({
+  const rows = models.map(({ id, name, contextWindow, vision, reasoning }) => ({
     id,
     displayName: name,
     contextLength: contextWindow,
     ...(vision === undefined ? {} : { vision }),
+    ...(reasoning === undefined ? {} : { reasoning }),
   }));
   writeFileSync(temp, `${JSON.stringify({ models: rows }, null, 2)}\n`);
   renameSync(temp, target);
+}
+
+/** A DeepSeek model, unless the catalog says it doesn't reason at all. */
+export function thinkingSwitch(model: CatalogModel): boolean {
+  return THINKING_SWITCH.test(model.id) && model.reasoning !== false;
+}
+
+/**
+ * The request body without `reasoning_effort`, for a request to NusaGate; anything else is
+ * returned as it came. Null when there is nothing to change.
+ */
+export function withoutReasoningEffort(payload: unknown): Record<string, unknown> | null {
+  if (typeof payload !== "object" || payload === null || !("reasoning_effort" in payload)) return null;
+  const { reasoning_effort: _dropped, ...rest } = payload as Record<string, unknown>;
+  return rest;
 }
 
 function register(pi: ExtensionAPI, models: CatalogModel[]): void {
@@ -99,8 +118,8 @@ function register(pi: ExtensionAPI, models: CatalogModel[]): void {
       return {
         id: model.id,
         name: caps.vision ? `${model.name} (vision)` : model.name,
-        ...(REASONING.test(model.id)
-          ? { reasoning: true, compat: { thinkingFormat: "deepseek" as const, supportsReasoningEffort: true } }
+        ...(thinkingSwitch(model)
+          ? { reasoning: true, compat: { thinkingFormat: "deepseek" as const, supportsReasoningEffort: false } }
           : { reasoning: false }),
         input: caps.vision ? ["text", "image"] : ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -114,6 +133,12 @@ function register(pi: ExtensionAPI, models: CatalogModel[]): void {
 export default function models(pi: ExtensionAPI) {
   let current = readCache(homeDir());
   if (current.length > 0) register(pi, current);
+
+  // models.json files seeded before this change still ask for reasoning_effort.
+  pi.on("before_provider_request", (event, ctx) => {
+    if (ctx.model?.provider !== PROVIDER) return undefined;
+    return withoutReasoningEffort(event.payload) ?? undefined;
+  });
 
   pi.events.on(CATALOG_CHANNEL, (rows) => {
     const fresh = parseCatalog(rows);

@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findImagePaths, fitSize, formatBytes, mimeFor, Picture, renderPixels } from "../lib/image-preview.ts";
+import { findImagePaths, fitSize, formatBytes, MIN_PIXELS, mimeFor, Picture, readForModel, renderPixels, upscaleFactor } from "../lib/image-preview.ts";
 import { stripLines, type StripView } from "../extensions/images.ts";
 
 const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
@@ -202,4 +205,42 @@ test("backspacing ordinary text is left alone", async () => {
   await new Promise((resolve) => setTimeout(resolve, 600));
   assert.equal(h.box.text, "a [Image #1] b [");
   h.end();
+});
+
+test("an image under NusaGate's minimum is enlarged just enough", () => {
+  assert.equal(MIN_PIXELS, 512);
+  assert.equal(upscaleFactor(16, 16), 2, "16×16 is 256 pixels: doubled, 1024");
+  assert.equal(upscaleFactor(1, 1), 23);
+  assert.equal(upscaleFactor(10, 5), 4);
+  assert.equal(upscaleFactor(32, 16), 1, "512 is enough");
+  assert.equal(upscaleFactor(800, 600), 1);
+  assert.equal(upscaleFactor(0, 10), 1);
+  for (const [w, h] of [[16, 16], [1, 1], [10, 5], [3, 100]]) {
+    const f = upscaleFactor(w, h);
+    assert.ok(w * f * h * f >= MIN_PIXELS, `${w}×${h} enlarged ${f}× reaches the minimum`);
+  }
+});
+
+test("a tiny image file is sent enlarged as a PNG, and a normal one as it is", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "nusacode-img-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const photon = createRequire(import.meta.url)("@silvia-odwyer/photon-node");
+  const write = (name: string, w: number, h: number) => {
+    const image = new photon.PhotonImage(new Uint8Array(w * h * 4).fill(200), w, h);
+    const file = join(dir, name);
+    writeFileSync(file, image.get_bytes());
+    image.free();
+    return file;
+  };
+  const tiny = readForModel(write("tiny.png", 16, 16));
+  assert.equal(tiny.mimeType, "image/png");
+  const sent = photon.PhotonImage.new_from_base64(tiny.data);
+  assert.deepEqual([sent.get_width(), sent.get_height()], [32, 32]);
+  sent.free();
+
+  const fine = readForModel(write("fine.png", 40, 40));
+  assert.equal(fine.mimeType, "image/png");
+  const kept = photon.PhotonImage.new_from_base64(fine.data);
+  assert.deepEqual([kept.get_width(), kept.get_height()], [40, 40]);
+  kept.free();
 });
