@@ -15,6 +15,7 @@
 - `/undo` puts back the files the agent changed in its last prompt, and `/undo list` shows what can be undone. It covers the agent's own `write` and `edit` tools, not shell commands or subagents.
 
 ### Changed
+- The update notice on the welcome screen shows a new release the next time NusaCode starts, instead of up to a day later. NusaCode asks npm on every start, still without delaying it.
 - Which models take images now comes from NusaGate's catalog, so new models are marked `(vision)` without a NusaCode update. GPT 6.1 Terra is the first.
 - NusaCode no longer sends `reasoning_effort`, which NusaGate asks clients not to send, even if an older `models.json` in the NusaCode home asks for it. DeepSeek's thinking switch in `/thinking` still works.
 - 17 of NusaGate's 21 models are now marked `(vision)` instead of one, each checked with a test image through the gateway. Only DeepSeek V4 Pro, GLM 5.3, Qwen 3.8 27B and Qwen 3.8 Max are text-only. A vision flag in NusaGate's catalog is used if one is added.

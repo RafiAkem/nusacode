@@ -1,10 +1,11 @@
 /**
  * Is there a newer NusaCode on npm?
  *
- * Asked at most once a day: the answer is kept in `update-check.json` in the
- * NusaCode home, and a failed or slow request is remembered too, so being offline
- * costs one short timeout a day and never delays startup (the caller doesn't
- * await it). Nothing here throws.
+ * Asked on every start, so a release shows on the welcome screen the next time
+ * NusaCode opens. The caller doesn't await it, so it never delays startup: the
+ * notice appears once npm answers. The answer is kept in `update-check.json` in the
+ * NusaCode home, and used when npm can't be reached (offline, or slower than the
+ * timeout). Nothing here throws.
  *
  * Skipped when running from a git checkout (its package.json version is never
  * bumped, so it would always look out of date), and with `NUSACODE_NO_UPDATE_CHECK=1`
@@ -16,7 +17,6 @@ import { join } from "node:path";
 export const UPDATE_FILE = "update-check.json";
 /** What the welcome screen tells people to type: NusaCode updates itself (pack/extensions/update.ts). */
 export const UPDATE_COMMAND = "/update";
-export const CHECK_EVERY_MS = 24 * 60 * 60 * 1000;
 const TIMEOUT_MS = 3_000;
 const REGISTRY_URL = "https://registry.npmjs.org/nusacode/latest";
 
@@ -87,14 +87,9 @@ export async function availableUpdate(options: UpdateCheckOptions): Promise<stri
   const env = options.env ?? process.env;
   if (env.NUSACODE_NO_UPDATE_CHECK === "1" || env.PI_OFFLINE === "1") return null;
   if (existsSync(join(options.installDir, ".git"))) return null;
-  const now = options.now ?? Date.now();
-  let cache = readCache(options.dir);
-  // A clock that went backwards counts as stale too.
-  if (!cache || now - cache.checkedAt >= CHECK_EVERY_MS || now < cache.checkedAt) {
-    const latest = await fetchLatest(options.fetchImpl ?? fetch, options.url ?? REGISTRY_URL);
-    // A failed request keeps the last known answer, and still waits a day to retry.
-    cache = { checkedAt: now, latest: latest ?? cache?.latest ?? null };
-    writeCache(options.dir, cache);
-  }
-  return cache.latest && isNewer(options.current, cache.latest) ? cache.latest : null;
+  const latest = await fetchLatest(options.fetchImpl ?? fetch, options.url ?? REGISTRY_URL);
+  // A failed request keeps the last known answer; only a real answer is saved.
+  const known = latest ?? readCache(options.dir)?.latest ?? null;
+  if (latest) writeCache(options.dir, { checkedAt: options.now ?? Date.now(), latest });
+  return known && isNewer(options.current, known) ? known : null;
 }

@@ -357,7 +357,7 @@ default, so without a NusaGate key, set your own `model` in the agents in `~/.nu
 | `NUSACODE_HOME` | Home directory (default `~/.nusacode`) |
 | `NUSACODE_SKIP_SETUP=1` | Skip first-time setup |
 | `NUSACODE_NO_SPLASH=1` | Skip the setup splash |
-| `NUSACODE_NO_UPDATE_CHECK=1` | Don't ask npm for a newer version. NusaCode otherwise asks at most once a day and shows it on the welcome screen |
+| `NUSACODE_NO_UPDATE_CHECK=1` | Don't ask npm for a newer version. NusaCode otherwise asks each time it starts, without delaying startup, and shows it on the welcome screen |
 | `NUSACODE_NO_LEARN=1` | Turn off automatic learning |
 | `NUSACODE_AUTO_APPROVE_SKILLS=1` | Save learned skills straight into use, without `/skills review` |
 | `NUSACODE_LEARN_MODEL` | Model for learning reviews, as `provider/model` |
