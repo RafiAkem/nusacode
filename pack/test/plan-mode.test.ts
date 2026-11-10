@@ -380,3 +380,35 @@ test("ask mode with no screen refuses instead of waiting for an answer", async (
   assert.match(result?.reason ?? "", /no screen to ask on/);
   assert.equal(h.questions.length, 0);
 });
+
+test("commands that stop every node process are refused in every mode, since NusaCode runs on node", () => {
+  for (const command of [
+    "taskkill /F /IM node.exe",
+    "cd /c/app && (taskkill //F //IM node.exe 2>/dev/null; npm run dev)",
+    "taskkill -f -im node.exe /T",
+    'taskkill /F /IM "node.exe"',
+    "taskkill /im node*",
+    "Stop-Process -Name node -Force",
+    "Get-Process node | Stop-Process -Force",
+    "gps -Name node | kill",
+    "pkill node",
+    "pkill -9 -f node",
+    "killall node",
+  ]) {
+    for (const mode of ["off", "plan", "ask"] as const) {
+      const verdict = judge(mode, "bash", { command });
+      assert.equal(verdict.kind, "block", `${mode}: ${command}`);
+      assert.match(verdict.kind === "block" ? verdict.reason : "", /NusaCode itself runs on node/);
+    }
+  }
+  for (const command of [
+    "taskkill /F /PID 4242",
+    "taskkill /F /IM nodemon.exe",
+    "Stop-Process -Id 4242",
+    'pkill -f "node server.js"',
+    "node server.js",
+    "npm run dev",
+  ]) {
+    assert.equal(judge("off", "bash", { command }).kind, "allow", command);
+  }
+});

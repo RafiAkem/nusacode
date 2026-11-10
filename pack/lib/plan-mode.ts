@@ -212,11 +212,30 @@ function agentOnlyLooks(name: string, agentTools: AgentTools | undefined): boole
   return tools !== undefined && tools.every((tool) => READ_ONLY_AGENT_TOOLS.has(tool.trim().toLowerCase()));
 }
 
+/** `node`, `node.exe` or `node*`, alone or quoted whole: `"node server.js"` names one script, not every node. */
+const NODE = String.raw`(?:"node(?:\.exe)?\*?"|'node(?:\.exe)?\*?'|node(?:\.exe)?\*?(?=$|[\s;&|)]))`;
+/** Commands that stop every node process by name: `taskkill /IM node.exe`, `Stop-Process -Name node`, `pkill node`. */
+const KILLS_EVERY_NODE = [
+  new RegExp(String.raw`\btaskkill\b[^\n;&|]*\s[/-]{1,2}im\s+${NODE}`, "i"),
+  new RegExp(String.raw`\b(?:stop-process|spps|kill)\b[^\n;&|]*\s-(?:name|processname|n)\s+${NODE}`, "i"),
+  new RegExp(String.raw`\b(?:get-process|gps|ps)\s+(?:-name\s+)?${NODE}[^\n;&]*\|\s*(?:stop-process|spps|kill)\b`, "i"),
+  new RegExp(String.raw`\b(?:pkill|killall)\b(?:\s+-\S+)*\s+${NODE}`, "i"),
+];
+
+const SELF_KILL_REASON =
+  "Not run: this stops every node process, and NusaCode itself runs on node, so it would close this session " +
+  "with no warning. Stop only the process you mean, by its PID: find the one on a port with " +
+  "`netstat -ano | findstr :3000` (Windows) or `lsof -i :3000` (macOS, Linux), then `taskkill /F /PID <pid>` or `kill <pid>`.";
+
 /**
  * Whether a tool call may go ahead in the given mode. `agentTools` reads a subagent's definition,
  * because those files can be edited, so the name alone says nothing about what the agent may do.
  */
 export function judge(mode: Mode, tool: string, input: Record<string, unknown>, agentTools?: AgentTools): Verdict {
+  // In every mode: an agent restarting a dev server with `taskkill /IM node.exe` also kills NusaCode.
+  if (SHELL_TOOLS.has(tool) && KILLS_EVERY_NODE.some((pattern) => pattern.test(str(input.command)))) {
+    return { kind: "block", reason: SELF_KILL_REASON };
+  }
   if (mode === "off" || READ_ONLY_TOOLS.has(tool)) return { kind: "allow" };
   const looksOnly =
     (SHELL_TOOLS.has(tool) && isReadOnlyCommand(str(input.command), tool === "powershell" ? "powershell" : "bash")) ||
