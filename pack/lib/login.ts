@@ -1,9 +1,10 @@
 /**
- * "Sign in with NusaGate" for `/login`: PKCE against nusagate.com/dashboard/connect, the
+ * "Sign in with NusaGate" for `/login` and `/setup`: PKCE against nusagate.com/dashboard/connect, the
  * code comes back to a one-shot listener on 127.0.0.1, and is swapped for an ordinary
  * API key at /api/auth/keys. The key is stored as the OAuth "access" token; it never
  * expires and is revoked from the NusaGate dashboard, so refresh hands it back unchanged.
  */
+import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -79,8 +80,12 @@ export async function listenForRedirect(signal?: AbortSignal): Promise<{ callbac
       res.end(PAGE(ok ? "Signed in to NusaGate" : "Sign-in did not finish"));
       resolve(`http://127.0.0.1${req.url}`);
     });
-    signal?.addEventListener("abort", () => reject(new Error("Sign-in cancelled")), { once: true });
+    // An already-aborted signal never fires "abort", so check it too, or this would wait forever.
+    if (signal?.aborted) reject(new Error("Sign-in cancelled"));
+    else signal?.addEventListener("abort", () => reject(new Error("Sign-in cancelled")), { once: true });
   });
+  // A cancel can land when nobody awaits this yet; that must not be an unhandled rejection.
+  redirect.catch(() => {});
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -126,26 +131,48 @@ type Callbacks = {
   signal?: AbortSignal;
 };
 
+/**
+ * The whole browser sign-in, resolving with the API key. `show` gets the consent URL
+ * (open it, print it); `manual` optionally races a pasted redirect URL against the listener.
+ */
+export async function signInWithBrowser(
+  show: (url: string) => void,
+  opts: { manual?: () => Promise<string>; progress?: (message: string) => void; signal?: AbortSignal } = {},
+): Promise<string> {
+  const pkce = makePkce();
+  const listener = await listenForRedirect(opts.signal);
+  try {
+    // Esc while the listener was starting: stay quiet, don't open a browser.
+    if (opts.signal?.aborted) throw new Error("Sign-in cancelled");
+    show(connectUrl(SITE_URL, listener.callback, pkce));
+    // Whichever comes first: the browser hitting our listener, or a pasted redirect URL.
+    const manual = opts.manual?.();
+    const landed = await (manual ? Promise.race([listener.redirect, manual]) : listener.redirect);
+    opts.progress?.("Getting your API key…");
+    return await exchangeCode(SITE_URL, codeFrom(landed, pkce.state), pkce.verifier, opts.signal);
+  } finally {
+    listener.close();
+  }
+}
+
+/** Opens a URL in the default browser; the URL is an argument, never parsed by a shell. */
+export function openUrl(url: string): void {
+  const [command, args]: [string, string[]] =
+    process.platform === "win32" ? ["rundll32", ["url.dll,FileProtocolHandler", url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
+  const child = spawn(command, args, { detached: true, stdio: "ignore", windowsHide: true });
+  child.on("error", () => {}); // no browser: the URL is on screen to copy
+  child.unref();
+}
+
 /** pi's `oauth` block for the nusagate provider. */
 export const nusagateOAuth = {
   name: "NusaGate",
   async login(cb: Callbacks) {
-    const pkce = makePkce();
-    const listener = await listenForRedirect(cb.signal);
-    try {
-      cb.onAuth({
-        url: connectUrl(SITE_URL, listener.callback, pkce),
-        instructions: "Approve NusaCode in the browser. On another machine, paste the URL the browser ends up on.",
-      });
-      // Whichever comes first: the browser hitting our listener, or a pasted redirect URL.
-      const manual = cb.onManualCodeInput?.();
-      const landed = await (manual ? Promise.race([listener.redirect, manual]) : listener.redirect);
-      cb.onProgress?.("Getting your API key…");
-      const key = await exchangeCode(SITE_URL, codeFrom(landed, pkce.state), pkce.verifier, cb.signal);
-      return { access: key, refresh: key, expires: Date.now() + TEN_YEARS_MS };
-    } finally {
-      listener.close();
-    }
+    const key = await signInWithBrowser(
+      (url) => cb.onAuth({ url, instructions: "Approve NusaCode in the browser. On another machine, paste the URL the browser ends up on." }),
+      { manual: cb.onManualCodeInput, progress: cb.onProgress, signal: cb.signal },
+    );
+    return { access: key, refresh: key, expires: Date.now() + TEN_YEARS_MS };
   },
   async refreshToken<T>(credentials: T): Promise<T> {
     return credentials;

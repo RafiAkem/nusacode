@@ -34,6 +34,7 @@ import {
   type SetupSummary,
 } from "../lib/setup-steps.ts";
 import { runSetupWizard, type StepDefinition } from "../lib/setup-wizard.ts";
+import { openUrl, signInWithBrowser } from "../lib/login.ts";
 
 const PROVIDER = "nusagate";
 const DEFAULT_MODEL = "deepseek-v4.1-flash";
@@ -438,6 +439,14 @@ export default function setup(pi: ExtensionAPI) {
         dashboardUrl: API_KEYS_URL,
         verify: verifyApiKey,
         save: (key) => storeKey(ctx, key),
+        signIn: (showUrl, signal) =>
+          signInWithBrowser(
+            (url) => {
+              showUrl(url);
+              openUrl(url);
+            },
+            { signal },
+          ),
         onOutcome: (outcome: KeyOutcome) => {
           summary.key = outcome;
           if (outcome.kind === "saved") hasKey = true;

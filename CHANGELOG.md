@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `/setup` offers "Sign in with the browser" before asking for a key, so first-time users can log in with their NusaGate account.
 - Sign in with your NusaGate account instead of pasting a key: run `/login` and pick NusaGate, approve in the browser, and NusaCode gets its own API key ("NusaCode (login)", revocable in the NusaGate dashboard). On a machine without a browser, paste the URL the browser ends up on.
 - The welcome screen says when a newer NusaCode is on npm, with the command to update. It asks npm at most once a day, never delays startup, and stays quiet offline or with `NUSACODE_NO_UPDATE_CHECK=1`.
 - `nusacode update` installs the newest NusaCode itself, with the package manager it was installed with (npm, pnpm, bun or yarn), instead of printing the npm command. Inside NusaCode, `/update` closes it, updates, and reopens the same session; the welcome screen's update notice points to it.

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
-import { codeFrom, connectUrl, exchangeCode, listenForRedirect, makePkce } from "../lib/login.ts";
+import { codeFrom, connectUrl, exchangeCode, listenForRedirect, makePkce, signInWithBrowser } from "../lib/login.ts";
 
 test("PKCE challenge is S256 of the verifier", () => {
   const p = makePkce();
@@ -46,6 +46,14 @@ test("the listener also answers on [::1], where a rewritten localhost callback c
   } finally {
     l.close();
   }
+});
+
+test("an already-cancelled sign-in stops at once and never opens a browser", async () => {
+  const abort = new AbortController();
+  abort.abort();
+  let shown = false;
+  await assert.rejects(signInWithBrowser(() => (shown = true), { signal: abort.signal }), /cancelled/);
+  assert.equal(shown, false);
 });
 
 test("exchangeCode returns the key or the gateway's message", async () => {
