@@ -23,6 +23,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { CATALOG_CHANNEL } from "./meter.ts";
 import { agentDir } from "../lib/home.ts";
 import { readCapabilities, resolveCapabilities } from "../lib/model-capabilities.ts";
+import { nusagateOAuth } from "../lib/login.ts";
 
 const PROVIDER = "nusagate";
 const BASE_URL = "https://api.nusagate.com/v1";
@@ -113,6 +114,7 @@ function register(pi: ExtensionAPI, models: CatalogModel[]): void {
     baseUrl: BASE_URL,
     apiKey: "$NUSAGATE_API_KEY",
     api: "openai-completions",
+    oauth: nusagateOAuth,
     models: models.map((model) => {
       const caps = resolveCapabilities(model.id, model.contextWindow, overrides, model.vision);
       return {
@@ -133,6 +135,8 @@ function register(pi: ExtensionAPI, models: CatalogModel[]): void {
 export default function models(pi: ExtensionAPI) {
   let current = readCache(homeDir());
   if (current.length > 0) register(pi, current);
+  // No cache yet: models.json has the models; this only adds "Sign in with NusaGate" to /login.
+  else pi.registerProvider(PROVIDER, { name: "NusaGate", oauth: nusagateOAuth });
 
   // models.json files seeded before this change still ask for reasoning_effort.
   pi.on("before_provider_request", (event, ctx) => {

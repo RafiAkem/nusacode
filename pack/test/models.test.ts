@@ -7,7 +7,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { CATALOG_CHANNEL } from "../extensions/meter.ts";
 import models, { parseCatalog, withoutReasoningEffort } from "../extensions/models.ts";
 
-type Registered = { models: { id: string; name: string; contextWindow: number; maxTokens: number }[]; baseUrl: string };
+type Registered = {
+  models: { id: string; name: string; contextWindow: number; maxTokens: number }[];
+  baseUrl: string;
+  oauth?: { name: string };
+};
 
 /** Loads the extension against a temp home; returns its registrations and the catalog event. */
 function load(t: { after(fn: () => void): void }, cache?: unknown) {
@@ -21,6 +25,8 @@ function load(t: { after(fn: () => void): void }, cache?: unknown) {
   });
   if (cache !== undefined) writeFileSync(join(dir, "nusagate-models.json"), JSON.stringify(cache));
   const registered: Registered[] = [];
+  /** Registrations with no models: only the /login entry, models.json keeps the models. */
+  const loginOnly: Registered[] = [];
   let publish: (rows: unknown) => void = () => {};
   const handlers: Record<string, (event: unknown, ctx: unknown) => unknown> = {};
   models({
@@ -29,7 +35,7 @@ function load(t: { after(fn: () => void): void }, cache?: unknown) {
     },
     registerProvider: (name: string, config: Registered) => {
       assert.equal(name, "nusagate");
-      registered.push(config);
+      (config.models ? registered : loginOnly).push(config);
     },
     events: {
       on: (channel: string, fn: (rows: unknown) => void) => {
@@ -37,7 +43,7 @@ function load(t: { after(fn: () => void): void }, cache?: unknown) {
       },
     },
   } as unknown as ExtensionAPI);
-  return { dir, registered, publish, handlers };
+  return { dir, registered, loginOnly, publish, handlers };
 }
 
 const row = (id: string, displayName = id, contextLength = 1000) => ({ id, displayName, contextLength, pricing: {} });
@@ -51,14 +57,19 @@ test("catalog rows become models, and bad rows are dropped", () => {
 });
 
 test("with no cache, models.json stays in charge until the catalog arrives", (t) => {
-  const { registered } = load(t);
+  const { registered, loginOnly } = load(t);
   assert.equal(registered.length, 0);
+  // …but /login can already offer "Sign in with NusaGate".
+  assert.equal(loginOnly.length, 1);
+  assert.equal(loginOnly[0].oauth?.name, "NusaGate");
 });
 
 test("the cache is registered while loading, so a saved model resolves at startup", (t) => {
-  const { registered } = load(t, { models: [row("kimi-k3", "Kimi K3")] });
+  const { registered, loginOnly } = load(t, { models: [row("kimi-k3", "Kimi K3")] });
   assert.deepEqual(registered[0].models.map((m) => m.id), ["kimi-k3"]);
   assert.equal(registered[0].baseUrl, "https://api.nusagate.com/v1");
+  assert.equal(registered[0].oauth?.name, "NusaGate");
+  assert.equal(loginOnly.length, 0);
 });
 
 test("a new catalog is registered and cached for the next startup", (t) => {
