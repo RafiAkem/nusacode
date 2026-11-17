@@ -80,8 +80,12 @@ export async function listenForRedirect(signal?: AbortSignal): Promise<{ callbac
       res.end(PAGE(ok ? "Signed in to NusaGate" : "Sign-in did not finish"));
       resolve(`http://127.0.0.1${req.url}`);
     });
-    signal?.addEventListener("abort", () => reject(new Error("Sign-in cancelled")), { once: true });
+    // An already-aborted signal never fires "abort", so check it too, or this would wait forever.
+    if (signal?.aborted) reject(new Error("Sign-in cancelled"));
+    else signal?.addEventListener("abort", () => reject(new Error("Sign-in cancelled")), { once: true });
   });
+  // A cancel can land when nobody awaits this yet; that must not be an unhandled rejection.
+  redirect.catch(() => {});
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -138,6 +142,8 @@ export async function signInWithBrowser(
   const pkce = makePkce();
   const listener = await listenForRedirect(opts.signal);
   try {
+    // Esc while the listener was starting: stay quiet, don't open a browser.
+    if (opts.signal?.aborted) throw new Error("Sign-in cancelled");
     show(connectUrl(SITE_URL, listener.callback, pkce));
     // Whichever comes first: the browser hitting our listener, or a pasted redirect URL.
     const manual = opts.manual?.();

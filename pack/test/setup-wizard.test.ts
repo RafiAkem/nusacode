@@ -303,6 +303,7 @@ test("with browser sign-in, the step opens on a menu and the signed-in key is ch
   assert.deepEqual(k.saved, ["nsk_from_browser_5678"]);
   assert.deepEqual(k.outcomes, [{ kind: "saved", status: "ok", balanceIdr: 10_000 }]);
   assert.match(body(k.step), /Key accepted/);
+  assert.match(body(k.step), /nsk_•+5678/, "shows the signed-in key, masked, not an empty box");
 });
 
 test("esc while waiting for the browser cancels quietly; a failed sign-in shows why", async () => {

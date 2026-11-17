@@ -491,6 +491,8 @@ class KeyStep implements SetupStep {
       this.abort = null;
     }
     if (this.disposed) return;
+    // The checking and accepted views show the (masked) key from the input box.
+    this.input.setValue(key);
     await this.accept(key, "choose");
   }
 
@@ -561,7 +563,7 @@ class KeyStep implements SetupStep {
       const lines = [t.fg("accent", `${spinner(this.host)} ${m("key.waitingBrowser")}`)];
       if (this.browserUrl) {
         // The URL is longer than most terminals are wide: cut it into lines so it copies whole.
-        const room = Math.max(20, width);
+        const room = Math.max(1, width);
         lines.push("", t.fg("dim", m("key.browserUrl")));
         for (let i = 0; i < this.browserUrl.length; i += room) lines.push(this.browserUrl.slice(i, i + room));
       }
