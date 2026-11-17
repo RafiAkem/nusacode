@@ -33,7 +33,8 @@ nusacode
 ```
 
 The first run asks for your API key and offers to import skills from other coding agents. Then just
-type what you want done.
+type what you want done. Rather sign in than paste a key? Run `/login`, pick NusaGate and approve in
+the browser.
 
 To try it without installing, run `npx nusacode`. To update, run `nusacode update`, or type `/update` inside NusaCode: it closes, updates, and reopens your session.
 To run from source instead, see [Contributing](#contributing).
