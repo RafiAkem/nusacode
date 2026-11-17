@@ -29,8 +29,14 @@ const m = messages(
     "key.label": "API key",
     "key.title": "Connect to NusaGate",
     "key.subtitle":
-      "Every model runs through NusaGate, billed in rupiah from your wallet. Paste your API key; it stays in auth.json on this machine.",
+      "Every model runs through NusaGate, billed in rupiah from your wallet. Sign in with your NusaGate account or paste an API key; the key stays in auth.json on this machine.",
     "key.hint.choose": "↑↓ move · enter select · esc keep",
+    "key.hint.chooseNew": "↑↓ move · enter select · esc skip for now",
+    "key.hint.browser": "approve in the browser · esc cancel",
+    "key.browser": "Sign in with the browser",
+    "key.paste": "Paste an API key",
+    "key.waitingBrowser": "Waiting for you to approve NusaCode in the browser…",
+    "key.browserUrl": "Browser didn't open? Go to:",
     "key.hint.input": "enter check and save · esc skip for now",
     "key.hint.inputBack": "enter check and save · esc back",
     "key.hint.checking": "checking…",
@@ -115,8 +121,14 @@ const m = messages(
     "key.label": "API key",
     "key.title": "Hubungkan ke NusaGate",
     "key.subtitle":
-      "Semua model berjalan lewat NusaGate dan ditagih dalam rupiah dari saldo kamu. Tempel API key kamu; key disimpan di auth.json di komputer ini.",
+      "Semua model berjalan lewat NusaGate dan ditagih dalam rupiah dari saldo kamu. Masuk dengan akun NusaGate atau tempel API key; key disimpan di auth.json di komputer ini.",
     "key.hint.choose": "↑↓ pindah · enter pilih · esc pakai yang ada",
+    "key.hint.chooseNew": "↑↓ pindah · enter pilih · esc lewati dulu",
+    "key.hint.browser": "setujui di browser · esc batal",
+    "key.browser": "Masuk lewat browser",
+    "key.paste": "Tempel API key",
+    "key.waitingBrowser": "Menunggu kamu menyetujui NusaCode di browser…",
+    "key.browserUrl": "Browser tidak terbuka? Buka:",
     "key.hint.input": "enter cek dan simpan · esc lewati dulu",
     "key.hint.inputBack": "enter cek dan simpan · esc kembali",
     "key.hint.checking": "mengecek…",
@@ -335,9 +347,15 @@ export interface KeyStepOptions {
   /** Stores the key and switches pi over to it; resolves with an error message, or null. */
   save(key: string): Promise<string | null>;
   onOutcome(outcome: KeyOutcome): void;
+  /**
+   * Browser sign-in, resolving with a new key; offered first when present. `showUrl` gets the
+   * consent URL (for when the browser doesn't open); `signal` aborts when the user presses esc.
+   */
+  signIn?(showUrl: (url: string) => void, signal: AbortSignal): Promise<string>;
 }
 
-type KeyMode = "choose" | "input" | "checking" | "accepted";
+type KeyMode = "choose" | "input" | "browser" | "checking" | "accepted";
+type KeyChoice = "keep" | "browser" | "paste";
 
 class KeyStep implements SetupStep {
   private readonly host: StepHost;
@@ -350,13 +368,24 @@ class KeyStep implements SetupStep {
   private acceptedAt = 0;
   private holdMs = ACCEPTED_HOLD_MS;
   private disposed = false;
+  private browserUrl: string | null = null;
+  private abort: AbortController | null = null;
 
   constructor(host: StepHost, options: KeyStepOptions) {
     this.host = host;
     this.options = options;
-    this.mode = options.existingKey ? "choose" : "input";
+    this.mode = this.choices().length > 0 ? "choose" : "input";
     this.input.onSubmit = (value) => void this.submit(value);
     this.input.onEscape = () => this.escape();
+  }
+
+  /** The menu: keep the key there is, sign in with the browser, or paste one. Empty = straight to the input. */
+  private choices(): KeyChoice[] {
+    const list: KeyChoice[] = [];
+    if (this.options.existingKey) list.push("keep");
+    if (this.options.signIn) list.push("browser");
+    if (list.length > 0) list.push("paste");
+    return list;
   }
 
   get title(): string {
@@ -368,14 +397,15 @@ class KeyStep implements SetupStep {
   }
 
   hints(): string {
-    if (this.mode === "choose") return m("key.hint.choose");
-    if (this.mode === "input") return m(this.options.existingKey ? "key.hint.inputBack" : "key.hint.input");
+    if (this.mode === "choose") return m(this.options.existingKey ? "key.hint.choose" : "key.hint.chooseNew");
+    if (this.mode === "input") return m(this.choices().length > 0 ? "key.hint.inputBack" : "key.hint.input");
+    if (this.mode === "browser") return m("key.hint.browser");
     if (this.mode === "accepted") return m("continue");
     return m("key.hint.checking");
   }
 
   animating(): boolean {
-    return this.mode === "checking" || this.mode === "accepted";
+    return this.mode === "checking" || this.mode === "accepted" || this.mode === "browser";
   }
 
   tick(): void {
@@ -384,21 +414,30 @@ class KeyStep implements SetupStep {
 
   dispose(): void {
     this.disposed = true;
+    this.abort?.abort();
   }
 
   handleInput(data: string): void {
+    if (this.mode === "browser") {
+      if (matchesKey(data, "escape")) this.abort?.abort();
+      return;
+    }
     if (this.mode === "checking") return;
     if (this.mode === "accepted") {
       if (matchesKey(data, "enter")) this.host.finish("done");
       return;
     }
     if (this.mode === "choose") {
-      if (matchesKey(data, "up") || matchesKey(data, "down")) this.cursor = 1 - this.cursor;
-      else if (matchesKey(data, "enter") || matchesKey(data, "escape")) {
-        if (this.cursor === 0 || matchesKey(data, "escape")) {
-          this.options.onOutcome({ kind: "existing" });
-          this.host.finish("done");
-        } else {
+      const list = this.choices();
+      if (matchesKey(data, "up")) this.cursor = (this.cursor + list.length - 1) % list.length;
+      else if (matchesKey(data, "down")) this.cursor = (this.cursor + 1) % list.length;
+      else if (matchesKey(data, "escape")) this.leave();
+      else if (matchesKey(data, "enter")) {
+        this.error = null;
+        const choice = list[this.cursor];
+        if (choice === "keep") this.leave();
+        else if (choice === "browser") void this.browser();
+        else {
           this.mode = "input";
           this.input.setValue("");
         }
@@ -409,14 +448,50 @@ class KeyStep implements SetupStep {
     this.input.handleInput(data);
   }
 
-  private escape(): void {
+  /** Esc on the menu, or "keep": keeps the key there is, else skips for now. */
+  private leave(): void {
     if (this.options.existingKey) {
-      this.mode = "choose";
-      this.error = null;
+      this.options.onOutcome({ kind: "existing" });
+      this.host.finish("done");
       return;
     }
     this.options.onOutcome({ kind: "skipped" });
     this.host.finish("skipped");
+  }
+
+  private escape(): void {
+    if (this.choices().length > 0) {
+      this.mode = "choose";
+      this.error = null;
+      return;
+    }
+    this.leave();
+  }
+
+  private async browser(): Promise<void> {
+    const abort = new AbortController();
+    this.abort = abort;
+    this.mode = "browser";
+    this.browserUrl = null;
+    this.host.requestRender();
+    let key: string;
+    try {
+      key = await this.options.signIn!((url) => {
+        this.browserUrl = url;
+        this.host.requestRender();
+      }, abort.signal);
+    } catch (err) {
+      if (this.disposed) return;
+      this.mode = "choose";
+      // Esc is not an error: back to the menu quietly.
+      this.error = abort.signal.aborted ? null : err instanceof Error ? err.message : String(err);
+      this.host.requestRender();
+      return;
+    } finally {
+      this.abort = null;
+    }
+    if (this.disposed) return;
+    await this.accept(key, "choose");
   }
 
   private async submit(raw: string): Promise<void> {
@@ -425,13 +500,18 @@ class KeyStep implements SetupStep {
       this.error = m("key.empty");
       return;
     }
+    await this.accept(key, "input");
+  }
+
+  /** Checks and saves a key from either path; `back` is where a failure returns to. */
+  private async accept(key: string, back: "input" | "choose"): Promise<void> {
     this.mode = "checking";
     this.error = null;
     this.host.requestRender();
     const check = await this.options.verify(key);
     if (this.disposed) return;
     if (check.status === "rejected") {
-      this.mode = "input";
+      this.mode = back;
       this.input.setValue("");
       this.error = m("key.rejected");
       this.host.requestRender();
@@ -440,7 +520,7 @@ class KeyStep implements SetupStep {
     const problem = await this.options.save(key);
     if (this.disposed) return;
     if (problem) {
-      this.mode = "input";
+      this.mode = back;
       this.error = problem;
       this.options.onOutcome({ kind: "error", message: problem });
       this.host.requestRender();
@@ -463,12 +543,29 @@ class KeyStep implements SetupStep {
   render(width: number): string[] {
     const t = this.host.theme;
     if (this.mode === "choose") {
-      const options = [`${m("key.keep")}  ${t.fg("dim", maskKey(this.options.existingKey ?? ""))}`, m("key.replace")];
-      return [
-        t.fg("success", m("key.have")),
-        "",
-        ...options.map((label, i) => `${pointer(i === this.cursor, this.host)}${i === this.cursor ? t.bold(label) : label}`),
+      const label = (choice: KeyChoice): string =>
+        choice === "keep"
+          ? `${m("key.keep")}  ${t.fg("dim", maskKey(this.options.existingKey ?? ""))}`
+          : choice === "browser"
+            ? m("key.browser")
+            : m(this.options.existingKey ? "key.replace" : "key.paste");
+      const lines = [
+        ...(this.options.existingKey ? [t.fg("success", m("key.have")), ""] : []),
+        ...this.choices().map((choice, i) => `${pointer(i === this.cursor, this.host)}${i === this.cursor ? t.bold(label(choice)) : label(choice)}`),
       ];
+      if (this.error) lines.push("", t.fg("error", `✗ ${this.error}`));
+      else if (!this.options.existingKey) lines.push("", t.fg("dim", m("key.noKey", { url: this.options.dashboardUrl })));
+      return lines;
+    }
+    if (this.mode === "browser") {
+      const lines = [t.fg("accent", `${spinner(this.host)} ${m("key.waitingBrowser")}`)];
+      if (this.browserUrl) {
+        // The URL is longer than most terminals are wide: cut it into lines so it copies whole.
+        const room = Math.max(20, width);
+        lines.push("", t.fg("dim", m("key.browserUrl")));
+        for (let i = 0; i < this.browserUrl.length; i += room) lines.push(this.browserUrl.slice(i, i + room));
+      }
+      return lines;
     }
     const boxWidth = Math.max(12, Math.min(MAX_KEY_BOX, width));
     const inner = boxWidth - 4;

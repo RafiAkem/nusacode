@@ -207,7 +207,12 @@ test("maskKey shows the ends of a key and hides the middle", () => {
   assert.ok(maskKey(`nsk_${"x".repeat(200)}`).length <= 32);
 });
 
-function keyHarness(check: KeyCheck, existingKey: string | null = null, saveError: string | null = null) {
+function keyHarness(
+  check: KeyCheck,
+  existingKey: string | null = null,
+  saveError: string | null = null,
+  signIn?: (showUrl: (url: string) => void, signal: AbortSignal) => Promise<string>,
+) {
   const h = stepHarness();
   const outcomes: KeyOutcome[] = [];
   const verified: string[] = [];
@@ -218,6 +223,7 @@ function keyHarness(check: KeyCheck, existingKey: string | null = null, saveErro
     verify: async (key) => (verified.push(key), check),
     save: async (key) => (saved.push(key), saveError),
     onOutcome: (o) => outcomes.push(o),
+    signIn,
   }).create(h.host);
   const type = (text: string) => step.handleInput(`\x1b[200~${text}\x1b[201~`);
   return { ...h, step, outcomes, verified, saved, type };
@@ -277,6 +283,53 @@ test("replacing an existing key opens the key box, and esc goes back", () => {
   k.step.handleInput(ESC);
   assert.match(body(k.step), /Keep this key/);
   assert.deepEqual(k.results, []);
+});
+
+test("with browser sign-in, the step opens on a menu and the signed-in key is checked and saved", async () => {
+  let resolveKey!: (key: string) => void;
+  const k = keyHarness({ status: "ok", balanceIdr: 10_000 }, null, null, (showUrl) => {
+    showUrl(`https://nusagate.com/dashboard/connect?${"x".repeat(150)}`);
+    return new Promise((r) => (resolveKey = r));
+  });
+  assert.match(body(k.step), /Sign in with the browser/);
+  assert.match(body(k.step), /Paste an API key/);
+  k.step.handleInput(ENTER);
+  await sleep(0);
+  assert.match(body(k.step), /Waiting for you to approve/);
+  assert.match(body(k.step), /Browser didn't open\? Go to:/);
+  resolveKey("nsk_from_browser_5678");
+  await sleep(0);
+  await sleep(0);
+  assert.deepEqual(k.saved, ["nsk_from_browser_5678"]);
+  assert.deepEqual(k.outcomes, [{ kind: "saved", status: "ok", balanceIdr: 10_000 }]);
+  assert.match(body(k.step), /Key accepted/);
+});
+
+test("esc while waiting for the browser cancels quietly; a failed sign-in shows why", async () => {
+  let fail = false;
+  const k = keyHarness({ status: "ok" }, null, null, (_show, signal) =>
+    new Promise((_r, reject) => {
+      if (fail) reject(new Error("Sign-in was cancelled"));
+      signal.addEventListener("abort", () => reject(new Error("aborted")));
+    }),
+  );
+  k.step.handleInput(ENTER);
+  k.step.handleInput(ESC);
+  await sleep(0);
+  assert.match(body(k.step), /Sign in with the browser/);
+  assert.doesNotMatch(body(k.step), /aborted/);
+  fail = true;
+  k.step.handleInput(ENTER);
+  await sleep(0);
+  assert.match(body(k.step), /Sign-in was cancelled/);
+  assert.deepEqual(k.saved, []);
+  // Paste is still there, and esc from the menu skips.
+  k.step.handleInput(DOWN);
+  k.step.handleInput(ENTER);
+  assert.match(body(k.step), /╭/);
+  k.step.handleInput(ESC);
+  k.step.handleInput(ESC);
+  assert.deepEqual(k.results, ["skipped"]);
 });
 
 test("a key that can't be saved shows why", async () => {
