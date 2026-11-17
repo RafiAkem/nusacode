@@ -35,6 +35,19 @@ test("loopback listener resolves with the browser's redirect", async () => {
   }
 });
 
+test("the listener also answers on [::1], where a rewritten localhost callback can land", async (t) => {
+  const l = await listenForRedirect();
+  try {
+    const port = new URL(l.callback).port;
+    const res = await fetch(`http://[::1]:${port}/callback?code=c2&state=s2`).catch(() => null);
+    if (!res) return t.skip("no IPv6 loopback on this machine");
+    assert.equal(res.status, 200);
+    assert.equal(codeFrom(await l.redirect, "s2"), "c2");
+  } finally {
+    l.close();
+  }
+});
+
 test("exchangeCode returns the key or the gateway's message", async () => {
   let seen: unknown;
   const server = createServer((req, res) => {

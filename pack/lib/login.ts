@@ -58,9 +58,15 @@ const PAGE = (title: string) =>
   `<!doctype html><meta charset="utf-8"><title>NusaCode</title><body style="font:16px system-ui;padding:48px">` +
   `<h1 style="font-size:22px">${title}</h1><p>You can close this tab and go back to NusaCode.</p>`;
 
-/** A listener on a random loopback port that resolves with the first /callback redirect URL. */
+/**
+ * A listener on a random loopback port that resolves with the first /callback redirect URL.
+ * Listens on [::1] too, on the same port: Next.js rewrites the first "127.0.0.1" in a URL to
+ * "localhost", so after a login redirect the browser may come back to localhost, which can
+ * resolve to ::1.
+ */
 export async function listenForRedirect(signal?: AbortSignal): Promise<{ callback: string; redirect: Promise<string>; close: () => void }> {
   let server!: Server;
+  let server6: Server | undefined;
   const redirect = new Promise<string>((resolve, reject) => {
     server = createServer((req, res) => {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -80,7 +86,23 @@ export async function listenForRedirect(signal?: AbortSignal): Promise<{ callbac
     server.listen(0, "127.0.0.1", resolve);
   });
   const { port } = server.address() as AddressInfo;
-  return { callback: `http://127.0.0.1:${port}/callback`, redirect, close: () => server.close() };
+  const handler = server.listeners("request")[0] as Parameters<typeof createServer>[0];
+  await new Promise<void>((resolve) => {
+    const s = createServer(handler);
+    s.once("error", () => resolve()); // no IPv6, or the port is taken there: 127.0.0.1 still works
+    s.listen(port, "::1", () => {
+      server6 = s;
+      resolve();
+    });
+  });
+  return {
+    callback: `http://127.0.0.1:${port}/callback`,
+    redirect,
+    close: () => {
+      server.close();
+      server6?.close();
+    },
+  };
 }
 
 export async function exchangeCode(site: string, code: string, verifier: string, signal?: AbortSignal): Promise<string> {
