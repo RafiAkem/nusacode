@@ -25,7 +25,7 @@ Optimized for [NusaGate](https://nusagate.com), but not locked to it. Built on
 
 ## Quick start
 
-You need [Node.js](https://nodejs.org) 22.19 or newer and a [NusaGate](https://nusagate.com) API key.
+You need [Node.js](https://nodejs.org) 22.19 or newer (on 23.x, 23.8 or newer) and a [NusaGate](https://nusagate.com) API key.
 
 ```sh
 npm install -g nusacode

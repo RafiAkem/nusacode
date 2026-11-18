@@ -8,6 +8,15 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
+// The bundled undici needs zlib zstd (Node 22.15+ / 23.8+); without it pi crashes on load with "reading 'bind'".
+if (typeof require("node:zlib").createZstdDecompress !== "function") {
+  console.error(
+    `NusaCode needs Node.js 22.19 or newer (22.x), or 23.8 or newer. You have ${process.version}.\n` +
+      "Install the current Node.js LTS from https://nodejs.org (or with nvm: nvm install --lts), then run nusacode again.",
+  );
+  process.exit(1);
+}
+
 const root = path.join(__dirname, "..");
 
 const selfUpdate = require("./self-update.js");

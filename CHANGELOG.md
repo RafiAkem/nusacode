@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- On Node.js 23.0–23.7, NusaCode used to crash at startup with "Cannot read properties of undefined (reading 'bind')". It now says which Node.js version to install.
+
 ### Added
 - `/setup` offers "Sign in with the browser" before asking for a key, so first-time users can log in with their NusaGate account.
 - Sign in with your NusaGate account instead of pasting a key: run `/login` and pick NusaGate, approve in the browser, and NusaCode gets its own API key ("NusaCode (login)", revocable in the NusaGate dashboard). On a machine without a browser, paste the URL the browser ends up on.

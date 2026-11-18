@@ -39,7 +39,7 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=22.19.0"
+    "node": "^22.19.0 || >=23.8.0"
   },
   "scripts": {
     "start": "node bin/nusacode.js",
